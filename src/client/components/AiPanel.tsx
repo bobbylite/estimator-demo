@@ -39,7 +39,7 @@ export function DecisionMarks({ itemId, decisions }: { itemId: string; decisions
   if (!review && !jev) return null;
   return (
     <span className="decision-marks">
-      {jev ? <span className="jev-chip">Jev</span> : null}
+      {jev ? <span className="jev-chip">AI</span> : null}
       {review ? <span className="review-chip">Review</span> : null}
     </span>
   );
@@ -134,7 +134,7 @@ export function AiPanel({
             </p>
           </div>
           <button type="button" className="btn" disabled={pending} onClick={() => void run()}>
-            {pending ? "Reading…" : decisions.length ? "Run Jev again" : "Run Jev"}
+            {pending ? "Reading…" : decisions.length ? "Run again" : "Run"}
           </button>
         </div>
       )}
@@ -194,7 +194,7 @@ function DecisionColumn({
             <header>
               <strong>{decision.title}</strong>
               <span className={decision.actor === "jev" ? "jev-chip" : "person-chip"}>
-                {decision.actor === "jev" ? "Jev" : "Person"}
+                {decision.actor === "jev" ? "AI" : "Person"}
               </span>
             </header>
             <p>{decision.summary}</p>

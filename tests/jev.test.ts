@@ -9,6 +9,7 @@ import {
   JEV_ENDPOINT,
   JEV_MODEL,
   noulConfidence,
+  systemOne,
   type EstimateSnapshot,
 } from "../src/worker/ai/jev";
 import type { RateKv } from "../src/worker/auth/rate-limit";
@@ -162,6 +163,29 @@ describe("Jev HTTP client", () => {
     expect(JSON.stringify(result)).not.toContain(apiKey);
     expect(result.usage).toEqual({ inputTokens: 20, outputTokens: 4 });
     expect(result.decisions.find((decision) => decision.questionId === "bid_call")?.status).toBe("applied");
+  });
+
+  it("does not call fetch with the input object as this", async () => {
+    const input = {
+      apiKey: "sk-test-not-a-real-key",
+      state: { name: "US-183" },
+      questions: {},
+      fetchImpl(this: unknown): Promise<Response> {
+        expect(this).not.toBe(input);
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              model: JEV_MODEL,
+              answers: {},
+              usage: { input_tokens: 3, output_tokens: 1 },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        );
+      },
+    };
+    const result = await systemOne(input);
+    expect(result.usage).toEqual({ inputTokens: 3, outputTokens: 1 });
   });
 
   it("rejects a non-member before the provider is called", async () => {

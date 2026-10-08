@@ -231,7 +231,9 @@ export async function systemOne(input: {
   state: unknown;
   questions: Record<string, JevQuestion>;
 }): Promise<SystemOneResult> {
-  const response = await input.fetchImpl(JEV_ENDPOINT, {
+  // workerd rejects global fetch when `this` is the object that owns fetchImpl.
+  const fetchImpl = input.fetchImpl.bind(globalThis);
+  const response = await fetchImpl(JEV_ENDPOINT, {
     method: "POST",
     headers: {
       authorization: `Bearer ${input.apiKey}`,

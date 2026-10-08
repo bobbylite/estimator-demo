@@ -65,7 +65,7 @@ aiRoutes.post("/decisions", async (c) => {
     authorize: async () => {
       await enforceAiAccess(c.env, session);
     },
-    fetchImpl: fetch,
+    fetchImpl: fetch.bind(globalThis),
     apiKey: c.env.JEV_API_KEY,
     mock: c.env.PINGONE_MOCK === "true",
     estimate: snapshot(estimate),

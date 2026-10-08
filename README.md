@@ -197,13 +197,13 @@ Checked against the current [usernamePassword.check](https://developer.pingident
 
 ## AI pilot group
 
-The pilot gate covers AI calls only. Estimates, crews, and markups stay available to every signed-in user. When `AI_PILOT_GATE_ENABLED` is `false` (the production default), every signed-in user can call AI. When it is `true`, the BFF allows an AI call only if the user's PingOne group membership includes the configured group. Hiding a button is not the control: `POST /api/ai/decisions` checks membership on the server. A non-member receives `403` with `kind: "pilot_required"`. Estimate routes do not consult the gate.
+The pilot gate covers AI calls only. Estimates, crews, and markups stay available to every signed-in user. When `AI_PILOT_GATE_ENABLED` is `false`, every signed-in user can call AI. When it is `true`, the BFF allows an AI call only if the user's PingOne group membership includes the configured group. Production `wrangler.jsonc` sets it to `true`. Hiding a button is not the control: `POST /api/ai/decisions` checks membership on the server. A non-member receives `403` with `kind: "pilot_required"`. Estimate routes do not consult the gate.
 
 These are plain Worker vars in `wrangler.jsonc` `vars`, not secrets, so the gate can be flipped in the Cloudflare dashboard or in that file without changing application code. A new value takes effect on the next deploy (or as soon as the dashboard var is saved).
 
 | Var | Production default | Meaning |
 | --- | --- | --- |
-| `AI_PILOT_GATE_ENABLED` | `false` | `true` turns the gate on. Any other value leaves AI open to every signed-in user. |
+| `AI_PILOT_GATE_ENABLED` | `true` | `true` turns the gate on. Any other value leaves AI open to every signed-in user. |
 | `AI_PILOT_GROUP` | `Meridian AI Pilot` | Group name or group id. Match is case-insensitive. |
 | `AI_PILOT_GROUPS_CLAIM` | `groups` | ID-token claim that carries the groups. |
 | `AI_USER_CALLS_PER_HOUR` | `30` | Per-user cap. `429` with `kind: "ai_call_limit"`. |
@@ -252,35 +252,26 @@ What Robert configures for Jev:
 
 1. Create a key in TypeSafe and store it as the Worker secret `JEV_API_KEY`. Do not put it in `wrangler.jsonc` or `.dev.vars` that you commit.
 2. Leave the model at `jev-latest`.
-3. Turn on `AI_PILOT_GATE_ENABLED` only after the PingOne group and the `groups` ID-token claim are in place. Until then every signed-in user can spend the key, still inside the per-user limits and `AI_DAILY_BUDGET_USD`.
+3. `AI_PILOT_GATE_ENABLED` is `true` in production `wrangler.jsonc`, which is correct only after the PingOne group and the `groups` ID-token claim are in place. With the gate off, every signed-in user can spend the key, still inside the per-user limits and `AI_DAILY_BUDGET_USD`.
 
 ## Deploy to Cloudflare (free)
 
-```bash
-npx wrangler login
-npx wrangler d1 create meridian-estimator
-npx wrangler kv namespace create SESSIONS
-```
+The live app is [https://meridian-estimator.bobbylite.workers.dev](https://meridian-estimator.bobbylite.workers.dev).
 
-Put the real `database_id` and KV `id` into `wrangler.jsonc`. The committed ids are local placeholders. Change `name` if `meridian-estimator` is already taken on the account; `*.workers.dev` names are global.
+Requires Node.js 22 or newer.
 
-Store the tenant settings as secrets so they are not committed:
+`wrangler.jsonc` on `main` holds the production D1 `database_id`, the `SESSIONS` KV id, `PINGONE_ENV_ID`, `PINGONE_CLIENT_ID`, and `AI_PILOT_GATE_ENABLED` set to `true`. `PINGONE_MOCK` stays `false`. Those values are public identifiers, not secrets.
 
-```bash
-npx wrangler secret put PINGONE_ENV_ID
-npx wrangler secret put PINGONE_CLIENT_ID
-npx wrangler secret put PINGONE_CLIENT_SECRET
-npx wrangler secret put PINGONE_REDIRECT_URI
-```
+`PINGONE_CLIENT_SECRET` and `JEV_API_KEY` are Worker secrets and are already set. Do not print them, and do not commit them in `wrangler.jsonc` or `.dev.vars`.
 
-Leave `PINGONE_MOCK` as `false` in `wrangler.jsonc`. Set `PINGONE_AUTH_HOST` there if the tenant is not in North America.
+From `main`:
 
 ```bash
 npm run migrate:remote
 npm run deploy
 ```
 
-`npm run deploy` builds the SPA and Worker, then runs `wrangler deploy`. The site is served from the free `*.workers.dev` hostname. D1 holds estimates. KV holds sessions and in-progress logins. No paid Cloudflare products are required.
+`npm run migrate:remote` applies `migrations/` to the remote D1 database. `npm run deploy` builds the SPA and Worker, then runs `wrangler deploy`. D1 holds estimates. KV holds sessions and in-progress logins.
 
 Sessions use `Secure` cookies on HTTPS, which is what Workers serve. Local `vite` is HTTP, so the cookie is not marked `Secure` there; otherwise the browser would drop it and the mock demo could not sign in.
 

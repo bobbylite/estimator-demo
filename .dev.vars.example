@@ -11,7 +11,7 @@ PINGONE_REDIRECT_URI=
 PINGONE_SCOPES=openid profile email offline_access
 
 # Pilot gate is on in the local mock so the demo can show a member and a non-member.
-# Production wrangler.jsonc keeps AI_PILOT_GATE_ENABLED=false until Robert flips it.
+# Production wrangler.jsonc sets AI_PILOT_GATE_ENABLED=true.
 # These are plain Worker vars, not secrets. JEV_API_KEY, when used, is a secret.
 AI_PILOT_GATE_ENABLED=true
 AI_PILOT_GROUP=Meridian AI Pilot

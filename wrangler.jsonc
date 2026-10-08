@@ -9,9 +9,11 @@
   },
   "vars": {
     "PINGONE_MOCK": "false",
+    "PINGONE_ENV_ID": "c74a4945-1364-4966-9a68-abeaa3e7b767",
+    "PINGONE_CLIENT_ID": "55833d59-268f-4355-a46c-030fdf10c206",
     "PINGONE_AUTH_HOST": "https://auth.pingone.com",
     "PINGONE_SCOPES": "openid profile email offline_access",
-    "AI_PILOT_GATE_ENABLED": "false",
+    "AI_PILOT_GATE_ENABLED": "true",
     "AI_PILOT_GROUP": "Meridian AI Pilot",
     "AI_PILOT_GROUPS_CLAIM": "groups",
     "AI_USER_CALLS_PER_HOUR": "30",
@@ -22,14 +24,14 @@
     {
       "binding": "DB",
       "database_name": "meridian-estimator",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "dd46e860-73bc-4da1-a046-fbb4a9d46574",
       "migrations_dir": "migrations"
     }
   ],
   "kv_namespaces": [
     {
       "binding": "SESSIONS",
-      "id": "00000000000000000000000000000000"
+      "id": "c0418464653d42f195ce3efacae3351c"
     }
   ]
 }

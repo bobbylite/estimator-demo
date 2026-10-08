@@ -5,6 +5,8 @@ import {
   DEFAULT_CALLS_PER_HOUR,
   DEFAULT_TOKENS_PER_DAY,
   PILOT_MAX_AGE_MS,
+  PILOT_REQUIRED,
+  REAUTH_REQUIRED,
   pilotSettings,
   stampPilot,
   aiGateCovers,
@@ -59,16 +61,26 @@ function profile(id: string, email: string): Profile {
   return { id, username: email, name: email.split("@")[0] ?? email, email };
 }
 
-function sessionFor(user: Profile, input: { idToken?: string; pilotMember?: boolean; pilotCheckedAt?: number } = {}): SessionRecord {
+function sessionFor(
+  user: Profile,
+  input: {
+    idToken?: string;
+    pilotMember?: boolean;
+    pilotCheckedAt?: number;
+    refreshToken?: string | null;
+    accessExpiresAt?: number;
+    accessToken?: string;
+  } = {},
+): SessionRecord {
   const now = Date.now();
   return {
     id: "sess-1",
     csrfToken: "csrf",
     user,
-    accessToken: "access",
-    refreshToken: "refresh",
+    accessToken: input.accessToken ?? "access",
+    ...(input.refreshToken === null ? {} : { refreshToken: input.refreshToken ?? "refresh" }),
     idToken: input.idToken,
-    accessExpiresAt: now + 3_600_000,
+    accessExpiresAt: input.accessExpiresAt ?? now + 3_600_000,
     createdAt: now,
     absoluteExpiresAt: now + 43_200_000,
     pilotMember: input.pilotMember,
@@ -253,6 +265,122 @@ describe("pilot gate", () => {
       refresh: removed,
     }).catch((reason: unknown) => reason);
     expect(denied).toMatchObject({ status: 403, kind: "pilot_required" });
+  });
+
+  it("allows a member with no refresh token until the access token expires", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const refresh = vi.fn();
+    const session = sessionFor(ada, {
+      idToken: token([GROUP]),
+      pilotMember: true,
+      pilotCheckedAt: now - PILOT_MAX_AGE_MS - 1,
+      refreshToken: null,
+      accessExpiresAt: now + 3_600_000,
+      accessToken: "AT-SECRET",
+    });
+    try {
+      const allowed = await authorizeAiCall({
+        settings: settingsOn,
+        session,
+        kv: memoryKv(),
+        now,
+        refresh,
+      });
+      await authorizeAiCall({
+        settings: settingsOn,
+        session,
+        kv: memoryKv(),
+        now,
+        refresh,
+      });
+      expect(allowed.pilotMember).toBe(true);
+      expect(refresh).not.toHaveBeenCalled();
+      const logged = JSON.stringify(warn.mock.calls.filter((call) => JSON.stringify(call).includes("pingone.refresh_token.missing")));
+      expect(JSON.parse(logged)).toHaveLength(1);
+      expect(logged).not.toContain("AT-SECRET");
+      expect(logged).not.toContain("cookie");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("requires a new sign-in when a session with no refresh token is past accessExpiresAt", async () => {
+    const refresh = vi.fn();
+    const session = sessionFor(ada, {
+      pilotMember: true,
+      pilotCheckedAt: now,
+      refreshToken: null,
+      accessExpiresAt: now - 1,
+    });
+    const error = await authorizeAiCall({
+      settings: settingsOn,
+      session,
+      kv: memoryKv(),
+      now,
+      refresh,
+    }).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(HttpError);
+    expect(error).toMatchObject({ status: 401, kind: "reauth_required", message: REAUTH_REQUIRED });
+    expect(error).not.toMatchObject({ kind: "pilot_required" });
+    expect(refresh).not.toHaveBeenCalled();
+    expect(session.accessToken).toBe("access");
+
+    const atExpiry = sessionFor(ada, {
+      pilotMember: true,
+      pilotCheckedAt: now,
+      refreshToken: null,
+      accessExpiresAt: now,
+    });
+    await expect(
+      authorizeAiCall({ settings: settingsOn, session: atExpiry, kv: memoryKv(), now, refresh }),
+    ).rejects.toMatchObject({ status: 401, kind: "reauth_required" });
+  });
+
+  it("refuses a non-member who has no refresh token without calling PingOne", async () => {
+    const refresh = vi.fn(async () => {
+      throw new Error("no refresh token");
+    });
+    const session = sessionFor(ada, {
+      idToken: token([]),
+      pilotMember: false,
+      pilotCheckedAt: now - PILOT_MAX_AGE_MS - 1,
+      refreshToken: null,
+      accessExpiresAt: now + 3_600_000,
+    });
+    const error = await authorizeAiCall({
+      settings: settingsOn,
+      session,
+      kv: memoryKv(),
+      now,
+      refresh,
+    }).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(HttpError);
+    expect(error).toMatchObject({ status: 403, kind: "pilot_required", message: PILOT_REQUIRED });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("still refreshes a stale check after five minutes when a refresh token is present", async () => {
+    const session = sessionFor(ada, {
+      idToken: token([]),
+      pilotMember: true,
+      pilotCheckedAt: now - PILOT_MAX_AGE_MS - 1,
+      refreshToken: "refresh",
+      accessExpiresAt: now + 3_600_000,
+    });
+    const refresh = vi.fn(async (): Promise<RefreshedPilot> => ({
+      receivedIdToken: true,
+      session: { ...session, idToken: token([GROUP]) },
+    }));
+    const allowed = await authorizeAiCall({
+      settings: settingsOn,
+      session,
+      kv: memoryKv(),
+      now,
+      refresh,
+    });
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(allowed.pilotMember).toBe(true);
+    expect(allowed.pilotCheckedAt).toBe(now);
   });
 
   it("fails closed when a required refresh does not return an ID token", async () => {

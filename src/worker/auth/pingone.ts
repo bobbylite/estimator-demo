@@ -37,6 +37,9 @@ import {
 const USERNAME_PASSWORD = "application/vnd.pingidentity.usernamePassword.check+json";
 const OTP_CHECK = "application/vnd.pingidentity.otp.check+json";
 const DEVICE_SELECT = "application/vnd.pingidentity.device.select+json";
+const USER_REGISTER = "application/vnd.pingidentity.user.register+json";
+const USER_VERIFY = "application/vnd.pingidentity.user.verify+json";
+const USER_RESEND = "application/vnd.pingidentity.user.sendVerificationCode+json";
 
 interface FlowJson {
   id?: string;
@@ -52,6 +55,7 @@ interface FlowJson {
   };
   error?: { message?: string };
   details?: Array<{ message?: string }>;
+  email?: string;
 }
 
 export interface PingOneDeps {
@@ -112,6 +116,8 @@ export function createPingOneClient(deps: PingOneDeps): AuthProvider {
       selectedDeviceId: flow.selectedDevice?.id,
       username: flow._embedded?.user?.username,
       message: flow.error?.message,
+      canRegister: Boolean(flow._links?.["user.register"]?.href),
+      maskedEmail: typeof flow.email === "string" ? flow.email : undefined,
     };
     if (status !== "COMPLETED" && status !== "COMPLETED_ACCEPTED") return baseOutcome;
     const code = flow.authorizeResponse?.code;
@@ -223,6 +229,25 @@ export function createPingOneClient(deps: PingOneDeps): AuthProvider {
     },
     selectDevice(ctx, deviceId) {
       return postAction(ctx, "device.select", DEVICE_SELECT, { device: { id: deviceId } });
+    },
+    register(ctx, input) {
+      return postAction(ctx, "user.register", USER_REGISTER, {
+        username: input.username,
+        email: input.email,
+        password: input.password,
+      });
+    },
+    verifyRegistration(ctx, verificationCode) {
+      return postAction(ctx, "user.verify", USER_VERIFY, { verificationCode });
+    },
+    /**
+     * Resend uses an empty JSON object. The flow docs page currently copies the
+     * verify request model (`verificationCode`), but the action text is only
+     * "send the user a new account verification email", and the management API
+     * with this same media type has an empty body.
+     */
+    resendVerification(ctx) {
+      return postAction(ctx, "user.sendVerificationCode", USER_RESEND, {});
     },
     async read(ctx) {
       const result = await send(

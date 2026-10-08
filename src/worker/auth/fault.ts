@@ -80,9 +80,56 @@ export function throwPingOne(response: Response, json: unknown): never {
   throw error;
 }
 
-export function authFailureBody(error: AuthFlowError): { error: string; pingone?: PingOneFault } {
-  if (!error.pingone) return { error: error.message };
-  return { error: error.message, pingone: error.pingone };
+export function classifyFault(fault: PingOneFault | undefined): { kind?: string; requirements: string[] } {
+  if (!fault) return { requirements: [] };
+  const details = fault.details ?? [];
+  const blob = [fault.code, fault.message, fault.target, ...details.flatMap((detail) => [detail.code, detail.target, detail.message])]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const passwordDetails = details.filter((detail) => (detail.target ?? "").toLowerCase() === "password");
+  const inner = unique(passwordDetails.flatMap((detail) => detail.requirements ?? []));
+  const requirements = inner.length
+    ? inner
+    : unique(passwordDetails.flatMap((detail) => (detail.message ? [detail.message] : [])));
+  if (
+    fault.code === "UNIQUENESS_VIOLATION" ||
+    details.some((detail) => detail.code === "UNIQUENESS_VIOLATION") ||
+    blob.includes("already exists") ||
+    blob.includes("already in use")
+  ) {
+    return { kind: "taken", requirements: [] };
+  }
+  if (passwordDetails.length || blob.includes("password policy")) {
+    return { kind: "password_policy", requirements };
+  }
+  if (
+    fault.code === "INVALID_OTP" ||
+    details.some((detail) => (detail.target ?? "").toLowerCase().includes("verification")) ||
+    blob.includes("verification code")
+  ) {
+    return { kind: "invalid_code", requirements: [] };
+  }
+  return { requirements: [] };
+}
+
+export function authFailureBody(error: AuthFlowError): {
+  error: string;
+  kind?: string;
+  requirements?: string[];
+  pingone?: PingOneFault;
+} {
+  const classified = classifyFault(error.pingone);
+  const kind = error.kind ?? classified.kind;
+  const requirements = error.requirements ?? classified.requirements;
+  const summary =
+    kind === "password_policy" && error.pingone?.message ? error.pingone.message : error.message;
+  return {
+    error: summary,
+    ...(kind ? { kind } : {}),
+    ...(requirements.length ? { requirements } : {}),
+    ...(error.pingone ? { pingone: error.pingone } : {}),
+  };
 }
 
 /** Worker log line. Request bodies, cookies, and tokens are not included. */
@@ -113,15 +160,36 @@ function readDetails(value: unknown): NonNullable<PingOneFault["details"]> {
     const code = nonEmpty(record.code);
     const target = nonEmpty(record.target);
     const message = nonEmpty(record.message);
-    if (!code && !target && !message) return [];
+    const requirements = readRequirements(record.innerError);
+    if (!code && !target && !message && !requirements.length) return [];
     return [
       {
         ...(code ? { code: clip(code, 80) } : {}),
         ...(target ? { target: clip(target, 120) } : {}),
         ...(message ? { message: clip(message, 500) } : {}),
+        ...(requirements.length ? { requirements } : {}),
       },
     ];
   });
+}
+
+function readRequirements(value: unknown): string[] {
+  const record = asRecord(value);
+  if (!record) return [];
+  const lines: string[] = [];
+  for (const [key, item] of Object.entries(record)) {
+    if (SECRET_KEYS.some((secret) => key.toLowerCase() === secret)) continue;
+    if (typeof item === "string" && item.trim()) lines.push(clip(item.trim(), 240));
+    if (!Array.isArray(item)) continue;
+    for (const entry of item) {
+      if (typeof entry === "string" && entry.trim()) lines.push(clip(entry.trim(), 240));
+    }
+  }
+  return unique(lines).slice(0, 12);
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function headerValue(headers: Headers | undefined, names: string[]): string | undefined {

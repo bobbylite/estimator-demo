@@ -47,6 +47,10 @@ export interface FlowOutcome {
   selectedDeviceId?: string;
   username?: string;
   message?: string;
+  /** True when the flow offered the `user.register` link. */
+  canRegister?: boolean;
+  /** Masked address PingOne returns on a verification step, such as `jo****@example.com`. */
+  maskedEmail?: string;
 }
 
 export interface AuthProvider {
@@ -56,6 +60,9 @@ export interface AuthProvider {
   checkOtp(ctx: FlowCtx, otp: string): Promise<FlowOutcome>;
   selectDevice(ctx: FlowCtx, deviceId: string): Promise<FlowOutcome>;
   read(ctx: FlowCtx): Promise<FlowOutcome>;
+  register(ctx: FlowCtx, input: { username: string; email: string; password: string }): Promise<FlowOutcome>;
+  verifyRegistration(ctx: FlowCtx, verificationCode: string): Promise<FlowOutcome>;
+  resendVerification(ctx: FlowCtx): Promise<FlowOutcome>;
   exchangeCode(input: { code: string; codeVerifier: string }): Promise<TokenSet>;
   refresh(refreshToken: string): Promise<TokenSet>;
   userInfo(accessToken: string): Promise<Profile>;
@@ -70,7 +77,7 @@ export interface PingOneFault {
   code?: string;
   message?: string;
   target?: string;
-  details?: Array<{ code?: string; target?: string; message?: string }>;
+  details?: Array<{ code?: string; target?: string; message?: string; requirements?: string[] }>;
   /** `Correlation-Id` response header, when PingOne sends one. */
   correlationId?: string;
   /** `X-Request-Id` or `Request-Id` response header, when present. */
@@ -80,17 +87,27 @@ export interface PingOneFault {
 export class AuthFlowError extends Error {
   status: number;
   pingone?: PingOneFault;
+  kind?: string;
+  requirements?: string[];
 
-  constructor(status: number, message: string, pingone?: PingOneFault) {
+  constructor(
+    status: number,
+    message: string,
+    pingone?: PingOneFault,
+    extra?: { kind?: string; requirements?: string[] },
+  ) {
     super(message);
     this.name = "AuthFlowError";
     this.status = status;
     this.pingone = pingone;
+    this.kind = extra?.kind;
+    this.requirements = extra?.requirements;
   }
 }
 
 export type LoginView =
-  | { step: "username_password"; loginId: string; username?: string; message?: string }
+  | { step: "username_password"; loginId: string; username?: string; message?: string; canRegister?: boolean }
+  | { step: "verification"; loginId: string; email?: string; message?: string }
   | {
       step: "otp";
       loginId: string;
@@ -117,6 +134,7 @@ export interface LoginRecord {
   nonce: string;
   codeVerifier: string;
   status: string;
+  canRegister: boolean;
   createdAt: number;
 }
 

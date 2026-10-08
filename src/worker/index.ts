@@ -25,7 +25,12 @@ app.onError((error) => {
   if (error instanceof AuthFlowError) {
     return Response.json(authFailureBody(error), { status: error.status });
   }
-  if (error instanceof HttpError) return jsonError(error.status, error.message);
+  if (error instanceof HttpError) {
+    return Response.json(
+      { error: error.message, ...(error.kind ? { kind: error.kind } : {}) },
+      { status: error.status },
+    );
+  }
   console.error(error);
   return jsonError(500, "Something went wrong.");
 });

@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "meridian-estimator",
+  "compatibility_date": "2026-10-08",
+  "main": "./src/worker/index.ts",
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    "PINGONE_MOCK": "false",
+    "PINGONE_AUTH_HOST": "https://auth.pingone.com",
+    "PINGONE_SCOPES": "openid profile email offline_access"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "meridian-estimator",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "SESSIONS",
+      "id": "00000000000000000000000000000000"
+    }
+  ]
+}

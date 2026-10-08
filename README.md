@@ -126,6 +126,48 @@ Auth hosts, from PingOne’s regional API domains:
 
 Confirm the host against [PingOne API domains](https://developer.pingidentity.com/pingone-api/auth/working-with-pingone-apis.html) if Ping changes a region.
 
+### PingOne returns "Invalid username and/or password"
+
+That sentence is PingOne's own `usernamePassword.check` detail (`INVALID_VALUE`, target `username`). A wrong password, a missing password, a user in another population, and a user in another environment all come back with the same detail. The login alert and `POST /api/auth/login/password` now include the rest of PingOne's error. `wrangler tail` (and the local dev terminal) prints the same fields as one JSON line, `pingone.auth.failed`.
+
+```json
+{
+  "error": "Invalid username and/or password.",
+  "pingone": {
+    "status": 400,
+    "id": "6c796712-0f16-4062-815a-e0a92f4a2143",
+    "code": "INVALID_DATA",
+    "message": "The request could not be completed. One or more validation errors were in the request.",
+    "details": [
+      {
+        "code": "INVALID_VALUE",
+        "target": "username",
+        "message": "Invalid username and/or password."
+      }
+    ],
+    "correlationId": "present when PingOne sends Correlation-Id",
+    "requestId": "present when PingOne sends X-Request-Id"
+  }
+}
+```
+
+`pingone.id` is the id PingOne stores in its logs ([error codes](https://developer.pingidentity.com/pingone-api/platform/reference/error-codes.html)). `pingone.status` is the HTTP status PingOne returned. `correlationId` and `requestId` appear only when those response headers are present. Tokens, the client secret, and the password are not in this JSON or the log line.
+
+On the next attempt, check the tenant against `pingone.code` and `pingone.details[].target`:
+
+1. The user exists in the environment named by `PINGONE_ENV_ID`, inside a population the application's sign-on policy includes.
+2. That user has a password set. The value sent as `username` is the PingOne username, which can differ from the email address.
+3. The application's sign-on policy includes a Login (username and password) step and applies to that population.
+4. `PINGONE_AUTH_HOST` is the auth host for that environment's region. A user who exists in Europe is not found at `https://auth.pingone.com`.
+5. The app is a confidential OIDC Web application and its token endpoint authentication method is Client Secret Basic. `PINGONE_CLIENT_SECRET` is a Worker secret.
+6. The requested scopes are `openid profile email offline_access`. If the app has an OpenID resource grant, include `offline_access` on it. A scope problem fails the authorize call (`POST /api/auth/login/start`) and shows its own `pingone.code`, before any password check.
+7. A blank `PINGONE_REDIRECT_URI` matches `response_mode=pi.flow`: Ping's non-redirect docs say `redirect_uri` is not required, and Meridian omits it unless the variable is set. If the Web app has a redirect URI registered, set `PINGONE_REDIRECT_URI` to that exact value. A mismatch is `INVALID_VALUE` with target `redirect_uri`, usually on the authorize call. The getting-started sample always sends `redirect_uri` because that sample app registered one. The parameter table on the non-redirect authorize page still lists `redirect_uri` as required; the `pi.flow` prose on that same page says it is not.
+
+Checked against the current [usernamePassword.check](https://developer.pingidentity.com/pingone-api/auth/flows/flows-1/check-username-password.html) and [non-redirect authorize](https://developer.pingidentity.com/pingone-api/auth/openid-connect-oauth-2/authorization/authorize-browserless-and-mfa-only-flows.html) docs, Meridian sends:
+
+- `GET {authHost}/{envId}/as/authorize` with `response_type=code`, `response_mode=pi.flow`, `client_id`, `scope`, `state`, `nonce`, `code_challenge`, and `code_challenge_method=S256`. `redirect_uri` is included only when `PINGONE_REDIRECT_URI` is set. PKCE is optional on this request; Meridian always sends S256.
+- `POST {authHost}/{envId}/flows/{flowId}` with `Content-Type: application/vnd.pingidentity.usernamePassword.check+json` and `{"username","password"}`. The `ST` session cookie from the authorize response is sent back. The client secret is not on this request. It is sent later, as `Authorization: Basic`, to `POST /as/token`, with `code_verifier` because the authorize request included a challenge.
+
 ## Deploy to Cloudflare (free)
 
 ```bash

@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { api, setCsrf } from "../api";
+import { api, ApiError, setCsrf, type PingOneErrorBody } from "../api";
 import { ThemeToggle } from "../theme";
 
 interface Hints {
@@ -43,7 +43,7 @@ export function LoginPage() {
   const [otp, setOtp] = useState("");
   const [deviceId, setDeviceId] = useState("");
   const [view, setView] = useState<LoginView | null>(null);
-  const [error, setError] = useState("");
+  const [failure, setFailure] = useState<{ message: string; pingone?: PingOneErrorBody } | null>(null);
   const [pending, setPending] = useState(false);
 
   const finish = useCallback(
@@ -75,7 +75,7 @@ export function LoginPage() {
           if (next.step === "authenticated") void finish(next);
           else setView(next);
         })
-        .catch((reason: unknown) => setError(messageOf(reason)));
+        .catch((reason: unknown) => setFailure(readFailure(reason)));
     }, 2000);
     return () => window.clearInterval(timer);
   }, [finish, view]);
@@ -92,7 +92,7 @@ export function LoginPage() {
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    setError("");
+    setFailure(null);
     setPending(true);
     try {
       if (!view || view.step === "username_password") {
@@ -128,7 +128,7 @@ export function LoginPage() {
         await apply(next);
       }
     } catch (reason) {
-      setError(messageOf(reason));
+      setFailure(readFailure(reason));
     } finally {
       setPending(false);
     }
@@ -205,10 +205,11 @@ export function LoginPage() {
             </div>
           ) : null}
           <form onSubmit={onSubmit} noValidate>
-            {error ? (
-              <p className="error" role="alert">
-                {error}
-              </p>
+            {failure ? (
+              <div className="error" role="alert">
+                <p>{failure.message}</p>
+                {failure.pingone ? <PingOneFaultView fault={failure.pingone} /> : null}
+              </div>
             ) : null}
             {!view || view.step === "username_password" ? (
               <>
@@ -290,7 +291,7 @@ export function LoginPage() {
                 style={{ marginTop: 10 }}
                 onClick={() => {
                   setView(null);
-                  setError("");
+                  setFailure(null);
                   setOtp("");
                 }}
               >
@@ -305,6 +306,34 @@ export function LoginPage() {
   );
 }
 
-function messageOf(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "Sign-in failed.";
+function readFailure(reason: unknown): { message: string; pingone?: PingOneErrorBody } {
+  if (reason instanceof ApiError) return { message: reason.message, pingone: reason.pingone };
+  if (reason instanceof Error) return { message: reason.message };
+  return { message: "Sign-in failed." };
+}
+
+function PingOneFaultView({ fault }: { fault: PingOneErrorBody }) {
+  const rows: Array<[string, string]> = [];
+  if (fault.code) rows.push(["code", fault.code]);
+  if (fault.message && fault.message !== fault.details?.[0]?.message) rows.push(["message", fault.message]);
+  if (fault.target) rows.push(["target", fault.target]);
+  for (const detail of fault.details ?? []) {
+    const label = detail.target ? `${detail.code ?? "detail"} · ${detail.target}` : (detail.code ?? "detail");
+    if (detail.message) rows.push([label, detail.message]);
+  }
+  if (fault.id) rows.push(["id", fault.id]);
+  if (fault.correlationId) rows.push(["correlationId", fault.correlationId]);
+  if (fault.requestId) rows.push(["requestId", fault.requestId]);
+  if (typeof fault.status === "number") rows.push(["http", String(fault.status)]);
+  if (!rows.length) return null;
+  return (
+    <dl className="fault">
+      {rows.map(([label, value], index) => (
+        <div key={`${label}-${index}`}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { authFailureBody } from "./auth/fault";
 import { AuthFlowError } from "./auth/types";
 import type { Env } from "./env";
 import { HttpError, jsonError } from "./http";
@@ -21,9 +22,10 @@ app.route("/api/estimates", estimateRoutes);
 app.notFound(() => jsonError(404, "Not found."));
 
 app.onError((error) => {
-  if (error instanceof HttpError || error instanceof AuthFlowError) {
-    return jsonError(error.status, error.message);
+  if (error instanceof AuthFlowError) {
+    return Response.json(authFailureBody(error), { status: error.status });
   }
+  if (error instanceof HttpError) return jsonError(error.status, error.message);
   console.error(error);
   return jsonError(500, "Something went wrong.");
 });

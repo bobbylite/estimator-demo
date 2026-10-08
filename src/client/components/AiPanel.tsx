@@ -109,7 +109,7 @@ export function AiPanel({
         <p className="kicker">Private pilot</p>
         <h2>AI is in a private pilot</h2>
         <p>
-          Estimating stays open. Jev suggestions are limited to the {pilot?.group ?? "pilot"} group.
+          Estimating stays open. AI suggestions are limited to the {pilot?.group ?? "pilot"} group.
         </p>
       </section>
     );

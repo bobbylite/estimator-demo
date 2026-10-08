@@ -62,13 +62,30 @@ export interface AuthProvider {
   endSession(input: { idToken?: string }): Promise<void>;
 }
 
+/** A PingOne error document, trimmed to fields that are safe to show and log. */
+export interface PingOneFault {
+  status: number;
+  /** PingOne's `id`. On an error document this is the id stored in PingOne logs. */
+  id?: string;
+  code?: string;
+  message?: string;
+  target?: string;
+  details?: Array<{ code?: string; target?: string; message?: string }>;
+  /** `Correlation-Id` response header, when PingOne sends one. */
+  correlationId?: string;
+  /** `X-Request-Id` or `Request-Id` response header, when present. */
+  requestId?: string;
+}
+
 export class AuthFlowError extends Error {
   status: number;
+  pingone?: PingOneFault;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, pingone?: PingOneFault) {
     super(message);
     this.name = "AuthFlowError";
     this.status = status;
+    this.pingone = pingone;
   }
 }
 

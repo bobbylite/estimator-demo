@@ -326,6 +326,21 @@ html[data-theme="dark"] .btn { background: var(--accent); color: var(--accent-in
   margin: 0 0 14px;
 }
 
+.error p { margin: 0; }
+
+.fault {
+  margin: 8px 0 0;
+  display: grid;
+  gap: 4px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.fault div { display: grid; grid-template-columns: 9.5rem 1fr; gap: 8px; }
+.fault dt { opacity: 0.75; }
+.fault dd { margin: 0; overflow-wrap: anywhere; }
+
 .devices { display: grid; gap: 8px; margin-bottom: 14px; }
 
 .device {

@@ -1,4 +1,5 @@
 import { mergeCookies, readSetCookies } from "./cookies";
+import { isPingOneFailure, throwPingOne } from "./fault";
 import { basicAuthorization } from "./pkce";
 import {
   AuthFlowError,
@@ -91,9 +92,7 @@ export function createPingOneClient(deps: PingOneDeps): AuthProvider {
     expectedState: string,
     response: Response,
   ): FlowOutcome {
-    if (response.status >= 400 || isErrorBody(flow)) {
-      throw new AuthFlowError(response.status || 400, errorMessage(flow, response.status));
-    }
+    if (isPingOneFailure(response.status, flow)) throwPingOne(response, flow);
     if (response.status >= 300 && response.status < 400) {
       throw new AuthFlowError(
         502,
@@ -148,9 +147,7 @@ export function createPingOneClient(deps: PingOneDeps): AuthProvider {
       return { code, cookies: resumed.cookies };
     }
     const body = (resumed.json ?? {}) as FlowJson;
-    if (resumed.response.status >= 400) {
-      throw new AuthFlowError(resumed.response.status, errorMessage(body, resumed.response.status));
-    }
+    if (isPingOneFailure(resumed.response.status, resumed.json)) throwPingOne(resumed.response, resumed.json);
     const returnedState = body.authorizeResponse?.state;
     if (returnedState && returnedState !== expectedState) {
       throw new AuthFlowError(401, "PingOne returned a state that does not match this login.");
@@ -255,9 +252,7 @@ export function createPingOneClient(deps: PingOneDeps): AuthProvider {
         { method: "GET", headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" } },
         "",
       );
-      if (result.response.status >= 400) {
-        throw new AuthFlowError(result.response.status, "PingOne userinfo request failed.");
-      }
+      if (isPingOneFailure(result.response.status, result.json)) throwPingOne(result.response, result.json);
       const body = (result.json ?? {}) as Record<string, unknown>;
       const id = stringField(body, "sub");
       if (!id) throw new AuthFlowError(502, "PingOne userinfo response did not include a subject.");
@@ -305,9 +300,7 @@ async function tokenRequest(
   } catch {
     json = null;
   }
-  if (!response.ok) {
-    throw new AuthFlowError(response.status, errorMessage((json ?? {}) as FlowJson, response.status));
-  }
+  if (!response.ok || isPingOneFailure(response.status, json)) throwPingOne(response, json);
   const record = (json ?? {}) as Record<string, unknown>;
   const accessToken = stringField(record, "access_token");
   if (!accessToken) throw new AuthFlowError(502, "PingOne token response did not include an access token.");
@@ -340,19 +333,6 @@ function deviceLabel(type: string, device: Record<string, unknown>): string {
   if (type === "SMS" || type === "VOICE") return phone ? `${type} · ${phone}` : type;
   if (nickname) return nickname;
   return type;
-}
-
-function isErrorBody(flow: FlowJson): boolean {
-  return Boolean(flow.details?.length) && !flow.status;
-}
-
-function errorMessage(flow: FlowJson, status: number): string {
-  const detail = flow.details?.find((item) => item.message)?.message;
-  if (detail) return detail;
-  if (flow.message) return flow.message;
-  if (flow.error?.message) return flow.error.message;
-  if (status === 401 || status === 400) return "The username or password was not accepted.";
-  return "PingOne could not complete that step.";
 }
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {

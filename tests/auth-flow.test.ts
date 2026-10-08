@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createMockPingOne, MOCK_MFA_PASSWORD, MOCK_OTP, MOCK_PASSWORD, MOCK_USERNAME } from "../src/worker/auth/mock";
 import { advanceLogin, beginLogin, establishSession, refreshSession, viewForOutcome } from "../src/worker/auth/orchestrate";
+import { authFailureBody } from "../src/worker/auth/fault";
 import { createPingOneClient, type PingOneDeps } from "../src/worker/auth/pingone";
 import { AuthFlowError, type FlowOutcome } from "../src/worker/auth/types";
 
@@ -12,8 +13,13 @@ const config = {
   scopes: "openid profile email offline_access",
 };
 
-function jsonResponse(body: unknown, status = 200, cookies: string[] = []): Response {
-  const headers = new Headers({ "content-type": "application/json" });
+function jsonResponse(
+  body: unknown,
+  status = 200,
+  cookies: string[] = [],
+  extra: Record<string, string> = {},
+): Response {
+  const headers = new Headers({ "content-type": "application/json", ...extra });
   for (const cookie of cookies) headers.append("set-cookie", cookie);
   return new Response(JSON.stringify(body), { status, headers });
 }
@@ -168,21 +174,102 @@ describe("PingOne pi.flow client", () => {
     expect(selected.devices[0]?.label).toBe("SMS · *******01");
   });
 
-  it("surfaces invalid credentials and refuses a foreign resume host", async () => {
+  it("surfaces PingOne's code, message, details, and correlation id", async () => {
     const fetchImpl: typeof fetch = async () =>
       jsonResponse(
         {
+          id: "6c796712-0f16-4062-815a-e0a92f4a2143",
           code: "INVALID_DATA",
-          message: "The request could not be completed.",
-          details: [{ code: "INVALID_VALUE", message: "Invalid username and/or password" }],
+          message: "The request could not be completed. One or more validation errors were in the request.",
+          details: [
+            {
+              code: "INVALID_VALUE",
+              target: "username",
+              message: "Invalid username and/or password.",
+            },
+          ],
         },
         400,
+        [],
+        { "correlation-id": "corr-9", "x-request-id": "req-9" },
       );
     const client = createPingOneClient({ fetch: fetchImpl, config });
-    await expect(
-      client.checkPassword({ flowId: "flow-1", cookies: "", state: "state-1" }, "ada", "nope"),
-    ).rejects.toThrow(/Invalid username/);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const error = await client
+      .checkPassword({ flowId: "flow-1", cookies: "", state: "state-1" }, "ada", "nope")
+      .then(() => {
+        throw new Error("expected PingOne to reject the password");
+      })
+      .catch((reason: unknown) => reason);
+    const logged = spy.mock.calls.map((call) => String(call[0])).join("\n");
+    spy.mockRestore();
+    expect(error).toBeInstanceOf(AuthFlowError);
+    const failure = error as AuthFlowError;
+    expect(failure.message).toBe("Invalid username and/or password.");
+    expect(failure.pingone).toEqual({
+      status: 400,
+      id: "6c796712-0f16-4062-815a-e0a92f4a2143",
+      code: "INVALID_DATA",
+      message: "The request could not be completed. One or more validation errors were in the request.",
+      details: [{ code: "INVALID_VALUE", target: "username", message: "Invalid username and/or password." }],
+      correlationId: "corr-9",
+      requestId: "req-9",
+    });
+    expect(JSON.stringify(authFailureBody(failure))).not.toContain("super-secret");
+    expect(authFailureBody(failure).error).toBe("Invalid username and/or password.");
+    expect(logged).toContain("pingone.auth.failed");
+    expect(logged).toContain("INVALID_DATA");
+    expect(logged).toContain("6c796712-0f16-4062-815a-e0a92f4a2143");
+    expect(logged).not.toContain("super-secret");
+    expect(logged).not.toContain("nope");
+  });
 
+  it("does not swallow a flow error object returned with the username step", async () => {
+    const fetchImpl: typeof fetch = async () =>
+      jsonResponse({
+        id: "flow-1",
+        status: "USERNAME_PASSWORD_REQUIRED",
+        error: { code: "INVALID_CREDENTIALS", message: "Invalid username and/or password." },
+      });
+    const client = createPingOneClient({ fetch: fetchImpl, config });
+    const error = await client
+      .checkPassword({ flowId: "flow-1", cookies: "", state: "state-1" }, "ada", "nope")
+      .then(() => {
+        throw new Error("expected the embedded flow error to fail the step");
+      })
+      .catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(AuthFlowError);
+    expect((error as AuthFlowError).pingone).toMatchObject({
+      status: 200,
+      id: "flow-1",
+      code: "INVALID_CREDENTIALS",
+      message: "Invalid username and/or password.",
+    });
+    expect((error as AuthFlowError).status).toBe(400);
+  });
+
+  it("keeps an OAuth token error code and description", async () => {
+    const fetchImpl: typeof fetch = async () =>
+      jsonResponse({ error: "invalid_client", error_description: "Client authentication failed." }, 401);
+    const client = createPingOneClient({ fetch: fetchImpl, config });
+    const error = await client
+      .exchangeCode({ code: "auth-code", codeVerifier: "verifier-1" })
+      .then(() => {
+        throw new Error("expected the token endpoint to fail");
+      })
+      .catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(AuthFlowError);
+    const failure = error as AuthFlowError;
+    expect(failure.pingone).toMatchObject({
+      status: 401,
+      code: "invalid_client",
+      message: "Client authentication failed.",
+    });
+    expect(failure.message).toBe("Client authentication failed.");
+    expect(JSON.stringify(failure.pingone)).not.toContain("super-secret");
+  });
+
+  it("refuses a foreign resume host", async () => {
     const foreign: typeof fetch = async () =>
       jsonResponse({
         id: "flow-1",

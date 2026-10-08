@@ -12,11 +12,20 @@ import {
   MOCK_VERIFICATION_CODE,
 } from "../auth/mock";
 import {
+  applyPilotToggle,
+  authorizeAiCall,
+  pilotSettings,
+  publicPilot,
+  requirePilotMember,
+  stampPilot,
+  type PilotSettings,
+} from "../ai/access";
+import {
   advanceLogin,
   beginLogin,
   establishSession,
   LOGIN_SECONDS,
-  refreshSession,
+  refreshSessionDetailed,
   SESSION_SECONDS,
   sessionExpired,
   sessionNeedsRefresh,
@@ -32,6 +41,7 @@ import {
   loginIdSchema,
   otpBodySchema,
   passwordBodySchema,
+  pilotToggleSchema,
   registerBodySchema,
   verificationBodySchema,
 } from "../../shared/schemas";
@@ -59,12 +69,12 @@ authRoutes.get("/config", (c) => {
 
 authRoutes.get("/session", async (c) => {
   const session = await readSession(c.env, c.req.header("cookie"));
-  if (!session) return c.json({ user: null, csrfToken: null, mock: isMock(c.env) });
+  if (!session) return c.json(sessionPayload(c.env, null));
   const fresh = await maybeRefresh(c.env, session);
   if (!fresh) {
     return clearSession(c, "Your session expired. Sign in again.", 200);
   }
-  return c.json({ user: fresh.user, csrfToken: fresh.csrfToken, mock: isMock(c.env) });
+  return c.json(sessionPayload(c.env, fresh));
 });
 
 authRoutes.post("/login/start", async (c) => {
@@ -183,6 +193,17 @@ authRoutes.post("/login/continue", async (c) => {
   return c.json(advanced.view);
 });
 
+authRoutes.post("/pilot", async (c) => {
+  assertOrigin(c);
+  if (!isMock(c.env)) throw new HttpError(404, "Not found.");
+  const session = await requireUser(c);
+  const body = await readJson(c.req.raw, pilotToggleSchema);
+  const settings = pilotSettings(c.env);
+  const next = applyPilotToggle(session, body.member, settings, true);
+  await saveSession(c.env, next);
+  return c.json(sessionPayload(c.env, next));
+});
+
 authRoutes.post("/logout", async (c) => {
   assertOrigin(c);
   const session = await readSession(c.env, c.req.header("cookie"));
@@ -218,8 +239,38 @@ export async function requireUser(c: {
 }
 
 function providerFor(env: Env): AuthProvider {
-  if (isMock(env)) return createMockPingOne();
+  if (isMock(env)) {
+    const settings = pilotSettings(env);
+    return createMockPingOne({ pilotGroup: settings.group, groupsClaim: settings.groupsClaim });
+  }
   return createPingOneClient({ fetch, config: requirePingConfig(env) });
+}
+
+function pilotRefresh(env: Env, session: SessionRecord) {
+  return {
+    settings: pilotSettings(env),
+    refresh: () => refreshSessionDetailed(providerFor(env), session),
+    save: (next: SessionRecord) => saveSession(env, next),
+  };
+}
+
+/** Membership check for an AI route. A failed recheck does not end the estimate session. */
+export async function enforcePilotMember(env: Env, session: SessionRecord): Promise<SessionRecord> {
+  const refresh = pilotRefresh(env, session);
+  return requirePilotMember({ settings: refresh.settings, session, refresh: refresh.refresh, save: refresh.save });
+}
+
+/** Membership and budget check for one Jev call. */
+export async function enforceAiAccess(env: Env, session: SessionRecord, tokens = 0): Promise<SessionRecord> {
+  const refresh = pilotRefresh(env, session);
+  return authorizeAiCall({
+    settings: refresh.settings,
+    session,
+    kv: env.SESSIONS,
+    tokens,
+    refresh: refresh.refresh,
+    save: refresh.save,
+  });
 }
 
 function isMock(env: Env): boolean {
@@ -232,7 +283,8 @@ async function finish(
   record: LoginRecord,
   outcome: Parameters<typeof establishSession>[2],
 ) {
-  const session = await establishSession(provider, record, outcome);
+  const settings = pilotSettings(c.env);
+  const session = stampPilot(await establishSession(provider, record, outcome), settings);
   await saveSession(c.env, session);
   await c.env.SESSIONS.delete(`login:${record.id}`);
   c.header(
@@ -244,6 +296,7 @@ async function finish(
     user: session.user,
     csrfToken: session.csrfToken,
     mock: isMock(c.env),
+    pilot: publicPilot(settings, session),
   });
 }
 
@@ -253,7 +306,7 @@ async function clearSession(
   _status: number,
 ) {
   c.header("set-cookie", serializeSessionCookie("", { secure: isSecure(c), maxAge: 0, clear: true }));
-  return c.json({ user: null, csrfToken: null, mock: isMock(c.env) });
+  return c.json(sessionPayload(c.env, null));
 }
 
 function assertOrigin(c: { req: { header: (name: string) => string | undefined; url: string } }) {
@@ -320,7 +373,9 @@ async function readSession(env: Env, cookieHeader: string | undefined): Promise<
 async function maybeRefresh(env: Env, session: SessionRecord): Promise<SessionRecord | null> {
   if (!sessionNeedsRefresh(session)) return session;
   try {
-    const next = await refreshSession(providerFor(env), session);
+    const detailed = await refreshSessionDetailed(providerFor(env), session);
+    const settings = pilotSettings(env);
+    const next = detailed.receivedIdToken ? stampPilot(detailed.session, settings) : detailed.session;
     await saveSession(env, next);
     return next;
   } catch (error) {
@@ -345,4 +400,14 @@ async function limit(
 
 function remainingSeconds(createdAt: number, lifetime: number): number {
   return Math.floor((createdAt + lifetime * 1000 - Date.now()) / 1000);
+}
+
+function sessionPayload(env: Env, session: SessionRecord | null) {
+  const settings: PilotSettings = pilotSettings(env);
+  return {
+    user: session?.user ?? null,
+    csrfToken: session?.csrfToken ?? null,
+    mock: isMock(env),
+    pilot: publicPilot(settings, session),
+  };
 }

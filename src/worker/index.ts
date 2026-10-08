@@ -3,6 +3,7 @@ import { authFailureBody } from "./auth/fault";
 import { AuthFlowError } from "./auth/types";
 import type { Env } from "./env";
 import { HttpError, jsonError } from "./http";
+import { aiRoutes } from "./routes/ai";
 import { authRoutes } from "./routes/auth";
 import { estimateRoutes } from "./routes/estimates";
 
@@ -18,6 +19,7 @@ app.use("*", async (c, next) => {
 app.get("/api/health", (c) => c.json({ ok: true, mock: c.env.PINGONE_MOCK === "true" }));
 app.route("/api/auth", authRoutes);
 app.route("/api/estimates", estimateRoutes);
+app.route("/api/ai", aiRoutes);
 
 app.notFound(() => jsonError(404, "Not found."));
 

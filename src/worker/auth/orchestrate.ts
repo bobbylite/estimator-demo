@@ -129,6 +129,15 @@ export async function establishSession(
 }
 
 export async function refreshSession(provider: AuthProvider, session: SessionRecord): Promise<SessionRecord> {
+  const detailed = await refreshSessionDetailed(provider, session);
+  return detailed.session;
+}
+
+/** `receivedIdToken` is true only when this refresh grant returned a new ID token. */
+export async function refreshSessionDetailed(
+  provider: AuthProvider,
+  session: SessionRecord,
+): Promise<{ session: SessionRecord; receivedIdToken: boolean }> {
   if (!session.refreshToken) {
     throw new AuthFlowError(401, "The session expired. Sign in again.");
   }
@@ -136,12 +145,15 @@ export async function refreshSession(provider: AuthProvider, session: SessionRec
   const user = await provider.userInfo(tokens.accessToken).catch(() => session.user);
   const now = Date.now();
   return {
-    ...session,
-    user,
-    accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken ?? session.refreshToken,
-    idToken: tokens.idToken ?? session.idToken,
-    accessExpiresAt: now + tokens.expiresIn * 1000,
+    receivedIdToken: Boolean(tokens.idToken),
+    session: {
+      ...session,
+      user,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken ?? session.refreshToken,
+      idToken: tokens.idToken ?? session.idToken,
+      accessExpiresAt: now + tokens.expiresIn * 1000,
+    },
   };
 }
 

@@ -156,8 +156,8 @@ export function AiPanel({
       {ai.isLoading ? <div className="skeleton" /> : null}
       {!ai.isLoading && decisions.length === 0 ? (
         <div className="empty">
-          <h2>No Jev decisions yet</h2>
-          <p>Run Jev to map cost codes, check production, and call the bid.</p>
+          <h2>No AI decisions yet</h2>
+          <p>Run AI to map cost codes, check production, and call the bid.</p>
         </div>
       ) : null}
       {decisions.length ? (

@@ -234,6 +234,26 @@ Map **Group IDs** instead of Group Names only if you want the id in the token. I
 
 With `PINGONE_MOCK=true`, the header shows **In group** and **Outside**. That toggle rewrites the session's ID token on the server. It returns 404 when mock mode is off. `robert@meridian.test` starts in the group. A newly registered user, such as `ada@meridian.test`, starts outside it. Either way the bid book still loads.
 
+## Jev
+
+Estimating decisions come from [Jev](https://typesafe.ai) (`POST https://api.typesafe.ai/v1/systemone`, model `jev-latest`), called only from the Worker. The browser never sees `JEV_API_KEY`. The official JS SDK is `@typesafe-ai/sdk`; Meridian uses a small `fetch` client instead so the Worker does not take a Node dependency.
+
+```bash
+npx wrangler secret put JEV_API_KEY
+```
+
+The request is `{ "model": "jev-latest", "state", "questions" }` with `Authorization: Bearer` and `Content-Type: application/json`. One request carries the bid/no-bid call, contingency, markup, and the per-item questions (cost code, route, crew, production check, outlier, vendor quote versus plug). Choice and score answers include `confidence`. A noul answer does not; Meridian uses `|2p − 1|` from `answer.noul`, as described in the [confidence](https://docs.typesafe.ai/confidence) docs.
+
+Every Jev call passes the pilot gate, the shared `AI_DAILY_BUDGET_USD` cap, and the per-user call and token budget. The Worker adds `usage.input_tokens` and `usage.output_tokens` to that daily ledger. High confidence, at or above the threshold on the Jev tab, is applied and marked Jev. Anything lower stays in the review queue until you accept or dismiss it. Saving a number yourself marks that decision person-authored.
+
+Mock mode (`PINGONE_MOCK=true`) does not call TypeSafe. The seeded US 183 estimate returns a fixed mix: flexible base production and contingency apply on their own, and excavation production, overhead, the lime route, and the base-rock plug wait for review. If production mock is off and `JEV_API_KEY` is missing, the run returns 503 instead of inventing an answer.
+
+What Robert configures for Jev:
+
+1. Create a key in TypeSafe and store it as the Worker secret `JEV_API_KEY`. Do not put it in `wrangler.jsonc` or `.dev.vars` that you commit.
+2. Leave the model at `jev-latest`.
+3. Turn on `AI_PILOT_GATE_ENABLED` only after the PingOne group and the `groups` ID-token claim are in place. Until then every signed-in user can spend the key, still inside the per-user limits and `AI_DAILY_BUDGET_USD`.
+
 ## Deploy to Cloudflare (free)
 
 ```bash

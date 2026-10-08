@@ -93,6 +93,14 @@ export const pilotToggleSchema = z.object({
   member: z.boolean(),
 });
 
+export const runAiSchema = z.object({
+  estimateId: z.string().min(8),
+});
+
+export const thresholdSchema = z.object({
+  threshold: z.number().finite().min(0.5, "Threshold must be at least 50%").max(0.95, "Threshold cannot exceed 95%"),
+});
+
 export const verificationBodySchema = z.object({
   loginId: z.string().min(8),
   verificationCode: z.string().trim().min(4, "Enter the verification code").max(32),

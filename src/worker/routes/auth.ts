@@ -16,6 +16,7 @@ import {
   authorizeAiCall,
   pilotSettings,
   publicPilot,
+  requirePilotMember,
   stampPilot,
   type PilotSettings,
 } from "../ai/access";
@@ -245,15 +246,30 @@ function providerFor(env: Env): AuthProvider {
   return createPingOneClient({ fetch, config: requirePingConfig(env) });
 }
 
-/** Membership and budget check for an AI call. A failed recheck does not end the estimate session. */
-export async function enforceAiAccess(env: Env, session: SessionRecord, tokens = 0): Promise<SessionRecord> {
-  return authorizeAiCall({
+function pilotRefresh(env: Env, session: SessionRecord) {
+  return {
     settings: pilotSettings(env),
+    refresh: () => refreshSessionDetailed(providerFor(env), session),
+    save: (next: SessionRecord) => saveSession(env, next),
+  };
+}
+
+/** Membership check for an AI route. A failed recheck does not end the estimate session. */
+export async function enforcePilotMember(env: Env, session: SessionRecord): Promise<SessionRecord> {
+  const refresh = pilotRefresh(env, session);
+  return requirePilotMember({ settings: refresh.settings, session, refresh: refresh.refresh, save: refresh.save });
+}
+
+/** Membership and budget check for one Jev call. */
+export async function enforceAiAccess(env: Env, session: SessionRecord, tokens = 0): Promise<SessionRecord> {
+  const refresh = pilotRefresh(env, session);
+  return authorizeAiCall({
+    settings: refresh.settings,
     session,
     kv: env.SESSIONS,
     tokens,
-    refresh: () => refreshSessionDetailed(providerFor(env), session),
-    save: (next) => saveSession(env, next),
+    refresh: refresh.refresh,
+    save: refresh.save,
   });
 }
 

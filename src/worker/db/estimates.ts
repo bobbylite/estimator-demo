@@ -1,4 +1,5 @@
 import { sampleCrews, sampleEstimate, sampleItems } from "../../shared/sample";
+import { attributeManualItemEdit, attributeManualMarkupEdit } from "./decisions";
 import type { BidItemInput, CrewInput, ResourceInput, UpdateEstimateInput } from "../../shared/schemas";
 import type { SqlDatabase } from "./sql";
 
@@ -196,7 +197,15 @@ export async function updateEstimate(
     .prepare(`UPDATE estimates SET ${sets.join(", ")} WHERE id = ? AND owner_id = ?`)
     .bind(...values)
     .run();
-  return getEstimate(db, ownerId, id);
+  const saved = await getEstimate(db, ownerId, id);
+  if (saved) {
+    await attributeManualMarkupEdit(db, ownerId, id, {
+      overheadPercent: saved.overheadPercent,
+      profitPercent: saved.profitPercent,
+      contingencyPercent: saved.contingencyPercent,
+    });
+  }
+  return saved;
 }
 
 export async function deleteEstimate(db: SqlDatabase, ownerId: string, id: string): Promise<boolean> {
@@ -210,6 +219,7 @@ export async function deleteEstimate(db: SqlDatabase, ownerId: string, id: strin
   }
   statements.push(db.prepare("DELETE FROM bid_items WHERE estimate_id = ?").bind(id));
   statements.push(db.prepare("DELETE FROM crews WHERE estimate_id = ?").bind(id));
+  statements.push(db.prepare("DELETE FROM ai_decisions WHERE estimate_id = ? AND owner_id = ?").bind(id, ownerId));
   statements.push(db.prepare("DELETE FROM estimates WHERE id = ? AND owner_id = ?").bind(id, ownerId));
   await db.batch(statements);
   return true;
@@ -324,6 +334,7 @@ export async function updateItem(
     )
     .run();
   if (!result.meta.changes) return null;
+  await attributeManualItemEdit(db, ownerId, estimateId, itemId, input.productionRate, input.crewId);
   await touch(db, ownerId, estimateId);
   return getEstimate(db, ownerId, estimateId);
 }

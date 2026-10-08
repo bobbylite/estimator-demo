@@ -19,3 +19,6 @@ AI_PILOT_GROUPS_CLAIM=groups
 AI_USER_CALLS_PER_HOUR=30
 AI_USER_TOKENS_PER_DAY=100000
 AI_DAILY_BUDGET_USD=5
+
+# Optional. Mock mode does not call Jev. In production this is a Worker secret, not a var:
+# npx wrangler secret put JEV_API_KEY

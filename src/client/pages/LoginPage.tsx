@@ -2,6 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, ApiError, setCsrf, type PingOneErrorBody } from "../api";
+import { sessionCache, type PilotState } from "../session";
 import { ThemeToggle } from "../theme";
 
 interface Hints {
@@ -32,7 +33,13 @@ type LoginView =
   | { step: "device_select"; loginId: string; devices: Device[]; message?: string }
   | { step: "push"; loginId: string; devices: Device[]; selectedDeviceId?: string; message?: string }
   | { step: "unsupported"; loginId: string; status: string; message: string }
-  | { step: "authenticated"; user: { id: string; username: string; name: string; email: string }; csrfToken: string; mock: boolean };
+  | {
+      step: "authenticated";
+      user: { id: string; username: string; name: string; email: string };
+      csrfToken: string;
+      mock: boolean;
+      pilot: PilotState;
+    };
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -53,11 +60,7 @@ export function LoginPage() {
   const finish = useCallback(
     async (next: Extract<LoginView, { step: "authenticated" }>) => {
       setCsrf(next.csrfToken);
-      queryClient.setQueryData(["session"], {
-        user: next.user,
-        csrfToken: next.csrfToken,
-        mock: next.mock,
-      });
+      queryClient.setQueryData(["session"], sessionCache(next));
       await navigate({ to: "/estimates" });
     },
     [navigate, queryClient],

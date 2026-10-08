@@ -195,6 +195,42 @@ Checked against the current [usernamePassword.check](https://developer.pingident
 - `GET {authHost}/{envId}/as/authorize` with `response_type=code`, `response_mode=pi.flow`, `client_id`, `scope`, `state`, `nonce`, `code_challenge`, and `code_challenge_method=S256`. `redirect_uri` is included only when `PINGONE_REDIRECT_URI` is set. PKCE is optional on this request; Meridian always sends S256.
 - `POST {authHost}/{envId}/flows/{flowId}` with `Content-Type: application/vnd.pingidentity.usernamePassword.check+json` and `{"username","password"}`. The `ST` session cookie from the authorize response is sent back. The client secret is not on this request. It is sent later, as `Authorization: Basic`, to `POST /as/token`, with `code_verifier` because the authorize request included a challenge.
 
+## AI pilot group
+
+The pilot gate covers AI calls only. Estimates, crews, and markups stay available to every signed-in user. When `AI_PILOT_GATE_ENABLED` is `false` (the production default), every signed-in user can call AI. When it is `true`, the BFF allows an AI call only if the user's PingOne group membership includes the configured group. Hiding a button is not the control: `POST /api/ai/decisions` checks membership on the server. A non-member receives `403` with `kind: "pilot_required"`. Estimate routes do not consult the gate.
+
+These are plain Worker vars in `wrangler.jsonc` `vars`, not secrets, so the gate can be flipped in the Cloudflare dashboard or in that file without changing application code. A new value takes effect on the next deploy (or as soon as the dashboard var is saved).
+
+| Var | Production default | Meaning |
+| --- | --- | --- |
+| `AI_PILOT_GATE_ENABLED` | `false` | `true` turns the gate on. Any other value leaves AI open to every signed-in user. |
+| `AI_PILOT_GROUP` | `Meridian AI Pilot` | Group name or group id. Match is case-insensitive. |
+| `AI_PILOT_GROUPS_CLAIM` | `groups` | ID-token claim that carries the groups. |
+| `AI_USER_CALLS_PER_HOUR` | `30` | Per-user cap. `429` with `kind: "ai_call_limit"`. |
+| `AI_USER_TOKENS_PER_DAY` | `100000` | Per-user cap, because the Jev key is Robert's. `429` with `kind: "ai_token_limit"`. |
+
+Local `.dev.vars` sets `AI_PILOT_GATE_ENABLED=true` so the mock demo shows both sides of the gate. Do not commit `.dev.vars`.
+
+### Where the groups come from
+
+PingOne puts group membership in the **ID token**, not the access token. That is the approach in Ping's [Amazon Verified Permissions use case](https://docs.pingidentity.com/pingone/use_cases/p1_use_case_amazon_verified_permissions.html): add an attribute mapped to Group Names, and select the identity token because "PingOne only includes the `group` claim in identity tokens, not in access tokens." Meridian does not call the PingOne Management API from the Worker.
+
+The BFF already requests `openid`, so the refresh grant returns a new ID token. [Token (refresh_token) (CLIENT_SECRET_BASIC)](https://developer.pingidentity.com/pingone-api/auth/openid-connect-oauth-2/token/token-refresh_token-client-secret-basic.html) is `POST /{envId}/as/token` with `grant_type=refresh_token` and `Authorization: Basic`. PingOne's page says that if the `openid` scope is granted, an ID token is included. The BFF decodes that ID token's payload. It received the token from PingOne over TLS. It does not accept a group list from the browser. The claim may be a JSON array, a single string, or a comma-separated string. A missing or undecodable claim is not membership.
+
+Membership is stored on the session at sign-in and again whenever the access token is refreshed. Before an AI call, if that check is older than five minutes, the BFF refreshes the token and reads the new ID token, so removing someone from the group takes effect without waiting out the access-token lifetime. If the gate is on and that refresh fails, or the new response has no ID token, the AI call is refused. The estimate session stays signed in.
+
+### What Robert clicks in PingOne
+
+1. **Directory > Groups.** Create a group whose name is the value of `AI_PILOT_GROUP` (default `Meridian AI Pilot`). Open the group, open **Users**, choose **Add Individually**, select the person, and save. Repeat for each pilot user. There is no self-serve join.
+2. **Applications > Applications**, open **Meridian**, then **Attribute Mappings**. Click the pencil, then **Add**. In Attributes, enter the name in `AI_PILOT_GROUPS_CLAIM` (default `groups`). In PingOne Mappings, select **Group Names**. Leave the claim on the ID token, which is the default for a custom attribute ([customizing OIDC attributes](https://docs.pingidentity.com/pingone/applications/p1_customizing_oidc_attributes_for_application.html), [custom ID token mappings](https://docs.pingidentity.com/pingone/applications/p1_editcustomidtokenmapping.html)). Save.
+3. Set the Worker var `AI_PILOT_GATE_ENABLED` to `true`.
+
+Map **Group IDs** instead of Group Names only if you want the id in the token. In that case set `AI_PILOT_GROUP` to that group's id. The comparison is still case-insensitive, and the claim name stays `AI_PILOT_GROUPS_CLAIM`.
+
+### Mock demo
+
+With `PINGONE_MOCK=true`, the header shows **In group** and **Outside**. That toggle rewrites the session's ID token on the server. It returns 404 when mock mode is off. `robert@meridian.test` starts in the group. A newly registered user, such as `ada@meridian.test`, starts outside it. Either way the bid book still loads.
+
 ## Deploy to Cloudflare (free)
 
 ```bash
@@ -230,7 +266,7 @@ Sessions use `Secure` cookies on HTTPS, which is what Workers serve. Local `vite
 | Script | Purpose |
 | --- | --- |
 | `npm run dev` | Vite and the Worker runtime, with local D1 and KV |
-| `npm test` | Cost math and PingOne flow tests |
+| `npm test` | Cost math, PingOne flow, and pilot-gate tests |
 | `npm run typecheck` | Client and Worker TypeScript |
 | `npm run lint` | ESLint |
 | `npm run build` | Production bundle |

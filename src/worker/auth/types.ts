@@ -148,4 +148,7 @@ export interface SessionRecord {
   accessExpiresAt: number;
   createdAt: number;
   absoluteExpiresAt: number;
+  /** Decoded from the ID token. Missing means the check has not run. */
+  pilotMember?: boolean;
+  pilotCheckedAt?: number;
 }

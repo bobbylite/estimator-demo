@@ -403,6 +403,7 @@ html[data-theme="dark"] .btn { background: var(--accent); color: var(--accent-in
 }
 
 .top-actions, .userbox { display: flex; align-items: center; gap: 10px; }
+.top-actions { flex-wrap: wrap; justify-content: flex-end; }
 
 .userbox span { color: var(--muted); }
 
@@ -416,6 +417,61 @@ html[data-theme="dark"] .btn { background: var(--accent); color: var(--accent-in
 }
 
 .mock-pill { background: var(--warn-bg); color: var(--warn); }
+
+.pilot-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.pilot-toggle button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 10px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.pilot-toggle button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+html[data-theme="dark"] .pilot-toggle button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.pilot-toggle button:disabled { cursor: progress; }
+
+.pilot-banner {
+  border-radius: 18px;
+  padding: 16px 18px;
+  margin: 0 0 16px;
+}
+
+.pilot-banner.is-out { background: var(--warn-bg); }
+.pilot-banner.is-in { background: var(--good-bg); }
+
+.pilot-banner .kicker { color: var(--muted); }
+
+.pilot-banner h2 {
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 560;
+  letter-spacing: -0.03em;
+  font-size: 1.55rem;
+  margin: 4px 0 6px;
+}
+
+.pilot-banner p:last-child {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--ink);
+  line-height: 1.45;
+}
 
 .status.draft { background: var(--bg); color: var(--muted); }
 .status.review { background: var(--warn-bg); color: var(--warn); }

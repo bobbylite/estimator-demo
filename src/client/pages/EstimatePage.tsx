@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { priceEstimate, type Markups } from "../../shared/costing";
 import { UNITS, bidItemSchema, resourceSchema } from "../../shared/schemas";
 import { api } from "../api";
+import { PilotNotice } from "../components/PilotNotice";
 import { Shell } from "../components/Shell";
 import { Dialog, Mix } from "../components/ui";
 import { formatDate, formatHours, formatMoney, formatQty, STATUS_LABEL } from "../format";
@@ -50,7 +51,7 @@ export function EstimatePage() {
 
   if (query.isLoading) {
     return (
-      <Shell name={session.data?.user?.name ?? "Estimator"} mock={Boolean(session.data?.mock)}>
+      <Shell name={session.data?.user?.name ?? "Estimator"} mock={Boolean(session.data?.mock)} pilot={session.data?.pilot}>
         <main className="page" id="main">
           <div className="skeleton" />
         </main>
@@ -60,7 +61,7 @@ export function EstimatePage() {
 
   if (query.isError || !estimate || !preview) {
     return (
-      <Shell name={session.data?.user?.name ?? "Estimator"} mock={Boolean(session.data?.mock)}>
+      <Shell name={session.data?.user?.name ?? "Estimator"} mock={Boolean(session.data?.mock)} pilot={session.data?.pilot}>
         <main className="page" id="main">
           <div className="callout">
             <strong>This estimate isn’t available.</strong>
@@ -272,7 +273,7 @@ export function EstimatePage() {
   const activeNotes = notes ?? bid.notes;
 
   return (
-    <Shell name={session.data?.user?.name ?? "Estimator"} mock={Boolean(session.data?.mock)}>
+    <Shell name={session.data?.user?.name ?? "Estimator"} mock={Boolean(session.data?.mock)} pilot={session.data?.pilot}>
       <main className="page" id="main">
         <div className="workspace-head">
           <div>
@@ -311,6 +312,7 @@ export function EstimatePage() {
           <div className="metric"><span>Items</span><b>{bid.items.length}</b></div>
         </section>
         <Mix {...totals} />
+        <PilotNotice pilot={session.data?.pilot} />
         <div className="legend" style={{ margin: "8px 0 16px" }}>
           <span><i className="swatch labor" /> Labor {formatMoney(totals.labor, true)}</span>
           <span><i className="swatch equip" /> Equipment {formatMoney(totals.equipment, true)}</span>

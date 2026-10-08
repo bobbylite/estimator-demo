@@ -2,6 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, ApiError, setCsrf } from "../api";
+import { sessionCache, type PilotState } from "../session";
 import { ThemeToggle } from "../theme";
 
 interface Hints {
@@ -25,6 +26,7 @@ type RegisterView =
       user: { id: string; username: string; name: string; email: string };
       csrfToken: string;
       mock: boolean;
+      pilot: PilotState;
     };
 
 interface Failure {
@@ -55,11 +57,7 @@ export function RegisterPage() {
   const finish = useCallback(
     async (next: Extract<RegisterView, { step: "authenticated" }>) => {
       setCsrf(next.csrfToken);
-      queryClient.setQueryData(["session"], {
-        user: next.user,
-        csrfToken: next.csrfToken,
-        mock: next.mock,
-      });
+      queryClient.setQueryData(["session"], sessionCache(next));
       await navigate({ to: "/estimates" });
     },
     [navigate, queryClient],

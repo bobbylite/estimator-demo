@@ -1,12 +1,13 @@
-import { AuthFlowError, type AuthProvider, type FlowCtx, type FlowOutcome, type PingOneFault, type Profile } from "./types";
+import { decodeBase64Url, DEFAULT_GROUPS_CLAIM, DEFAULT_PILOT_GROUP, encodeBase64Url, encodeUnsignedJwt } from "../ai/claims";
+import { AuthFlowError, type AuthProvider, type FlowCtx, type FlowOutcome, type PingOneFault, type Profile, type TokenSet } from "./types";
 
 /**
  * In-process stand-in for PingOne so the product can be demoed with no tenant.
  * Mock mode is explicit (PINGONE_MOCK=true) and is off in wrangler.jsonc.
  *
- *   robert@meridian.test / stake-demo     completes sign-on
+ *   robert@meridian.test / stake-demo     completes sign-on, in the pilot group
  *   robert@meridian.test / mfa-demo       asks for OTP 482913
- *   ada@meridian.test / Stake-1847        registers, then code 18472639
+ *   ada@meridian.test / Stake-1847        registers, then code 18472639, outside the group
  */
 
 export const MOCK_USERNAME = "robert@meridian.test";
@@ -36,11 +37,18 @@ interface Account {
   profile: Profile;
 }
 
+interface IssuedCode {
+  profile: Profile;
+  groups: string[];
+}
+
 const accounts = new Map<string, Account>([[keyOf(MOCK_USERNAME), { password: MOCK_PASSWORD, profile: MOCK_PROFILE }]]);
 const pending = new Map<string, Account>();
-const codes = new Map<string, Profile>();
+const codes = new Map<string, IssuedCode>();
 
-export function createMockPingOne(): AuthProvider {
+export function createMockPingOne(options?: { pilotGroup?: string; groupsClaim?: string }): AuthProvider {
+  const pilotGroup = options?.pilotGroup?.trim() || DEFAULT_PILOT_GROUP;
+  const groupsClaim = options?.groupsClaim?.trim() || DEFAULT_GROUPS_CLAIM;
   return {
     mode: "mock",
     async begin() {
@@ -68,11 +76,11 @@ export function createMockPingOne(): AuthProvider {
         };
       }
       if (password !== account.password) throw invalidCredentials();
-      return completed(ctx, account.profile);
+      return completed(ctx, account.profile, groupsFor(account.profile, pilotGroup));
     },
     async checkOtp(ctx, otp) {
       if (otp.trim() !== MOCK_OTP) throw new AuthFlowError(400, "That code is not valid.");
-      return completed(ctx, MOCK_PROFILE);
+      return completed(ctx, MOCK_PROFILE, [pilotGroup]);
     },
     async selectDevice(ctx, deviceId) {
       if (deviceId !== EMAIL_DEVICE.id) throw new AuthFlowError(400, "Choose a device to continue.");
@@ -118,34 +126,25 @@ export function createMockPingOne(): AuthProvider {
       if (!account) throw new AuthFlowError(404, "That sign-up expired. Start again.");
       accounts.set(keyOf(account.profile.username), account);
       pending.delete(ctx.flowId);
-      return completed(ctx, account.profile);
+      return completed(ctx, account.profile, groupsFor(account.profile, pilotGroup));
     },
     async resendVerification(ctx) {
       if (!pending.has(ctx.flowId)) throw new AuthFlowError(404, "That sign-up expired. Start again.");
       return verification(ctx, pending.get(ctx.flowId)?.profile.email ?? "", "A new verification code was sent.");
     },
     async exchangeCode(input) {
-      const profile = codes.get(input.code) ?? MOCK_PROFILE;
-      const encoded = encodeProfile(profile);
-      return {
-        accessToken: `mock-access.${encoded}`,
-        refreshToken: `mock-refresh.${encoded}`,
-        idToken: "mock-id-token",
-        expiresIn: 3600,
-        tokenType: "Bearer",
-      };
+      const issued = codes.get(input.code);
+      const profile = issued?.profile ?? MOCK_PROFILE;
+      const groups = issued?.groups ?? groupsFor(profile, pilotGroup);
+      return issueMockSessionTokens(profile, groups, groupsClaim);
     },
     async refresh(refreshToken) {
-      const encoded = refreshToken.slice("mock-refresh.".length).split(".")[0] ?? "";
-      const profile = decodeProfile(encoded) ?? MOCK_PROFILE;
-      const next = encodeProfile(profile);
-      return {
-        accessToken: `mock-access.${next}.${crypto.randomUUID()}`,
-        refreshToken: `mock-refresh.${next}`,
-        idToken: "mock-id-token",
-        expiresIn: 3600,
-        tokenType: "Bearer",
-      };
+      const parsed = parseMockRefresh(refreshToken);
+      const profile = parsed.profile ?? MOCK_PROFILE;
+      const groups = parsed.groups;
+      const claim = parsed.claim || groupsClaim;
+      const tokens = issueMockSessionTokens(profile, groups, claim);
+      return { ...tokens, accessToken: `${tokens.accessToken}.${crypto.randomUUID()}` };
     },
     async userInfo(accessToken) {
       if (!accessToken.startsWith("mock-access.")) {
@@ -172,9 +171,9 @@ function verification(ctx: FlowCtx, email: string, message?: string): FlowOutcom
   };
 }
 
-function completed(ctx: FlowCtx, profile: Profile): FlowOutcome {
+function completed(ctx: FlowCtx, profile: Profile, groups: string[]): FlowOutcome {
   const code = `mock-code-${crypto.randomUUID()}`;
-  codes.set(code, profile);
+  codes.set(code, { profile, groups });
   return {
     flowId: ctx.flowId,
     cookies: ctx.cookies || "ST=mock-session",
@@ -242,6 +241,40 @@ function maskEmail(email: string): string {
 
 function keyOf(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function groupsFor(profile: Profile, pilotGroup: string): string[] {
+  if (keyOf(profile.username) === keyOf(MOCK_USERNAME) || keyOf(profile.email) === keyOf(MOCK_USERNAME)) {
+    return [pilotGroup];
+  }
+  return [];
+}
+
+export function issueMockSessionTokens(profile: Profile, groups: string[], groupsClaim = DEFAULT_GROUPS_CLAIM): TokenSet {
+  const encoded = encodeProfile(profile);
+  const membership = encodeBase64Url(JSON.stringify({ claim: groupsClaim, groups }));
+  return {
+    accessToken: `mock-access.${encoded}`,
+    refreshToken: `mock-refresh.${encoded}.${membership}`,
+    idToken: encodeUnsignedJwt({ sub: profile.id, email: profile.email, [groupsClaim]: groups }),
+    expiresIn: 3600,
+    tokenType: "Bearer",
+  };
+}
+
+function parseMockRefresh(refreshToken: string): { profile?: Profile; groups: string[]; claim: string } {
+  const rest = refreshToken.startsWith("mock-refresh.") ? refreshToken.slice("mock-refresh.".length) : "";
+  const [encoded, membership] = rest.split(".");
+  const profile = encoded ? decodeProfile(encoded) : undefined;
+  if (!membership) return { profile, groups: [], claim: DEFAULT_GROUPS_CLAIM };
+  try {
+    const parsed = JSON.parse(decodeBase64Url(membership)) as { claim?: unknown; groups?: unknown };
+    const groups = Array.isArray(parsed.groups) ? parsed.groups.filter((item): item is string => typeof item === "string") : [];
+    const claim = typeof parsed.claim === "string" && parsed.claim ? parsed.claim : DEFAULT_GROUPS_CLAIM;
+    return { profile, groups, claim };
+  } catch {
+    return { profile, groups: [], claim: DEFAULT_GROUPS_CLAIM };
+  }
 }
 
 function encodeProfile(profile: Profile): string {

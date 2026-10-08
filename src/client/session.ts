@@ -8,10 +8,26 @@ export interface SessionUser {
   email: string;
 }
 
+export interface PilotState {
+  gateEnabled: boolean;
+  member: boolean;
+  group: string;
+}
+
 export interface SessionPayload {
   user: SessionUser | null;
   csrfToken: string | null;
   mock: boolean;
+  pilot: PilotState;
+}
+
+export function sessionCache(input: {
+  user: SessionUser;
+  csrfToken: string;
+  mock: boolean;
+  pilot: PilotState;
+}): SessionPayload {
+  return input;
 }
 
 export const sessionQueryOptions = {

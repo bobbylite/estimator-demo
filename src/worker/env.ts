@@ -8,4 +8,10 @@ export interface Env {
   PINGONE_CLIENT_SECRET?: string;
   PINGONE_REDIRECT_URI?: string;
   PINGONE_SCOPES?: string;
+  /** Plain Worker vars, not secrets. "true" limits AI calls to the pilot group. */
+  AI_PILOT_GATE_ENABLED?: string;
+  AI_PILOT_GROUP?: string;
+  AI_PILOT_GROUPS_CLAIM?: string;
+  AI_USER_CALLS_PER_HOUR?: string;
+  AI_USER_TOKENS_PER_DAY?: string;
 }

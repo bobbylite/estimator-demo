@@ -89,6 +89,10 @@ export const registerBodySchema = z.object({
   password: z.string().min(1, "Enter a password").max(200),
 });
 
+export const pilotToggleSchema = z.object({
+  member: z.boolean(),
+});
+
 export const verificationBodySchema = z.object({
   loginId: z.string().min(8),
   verificationCode: z.string().trim().min(4, "Enter the verification code").max(32),

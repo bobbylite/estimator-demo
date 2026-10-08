@@ -372,6 +372,9 @@ async function readSession(env: Env, cookieHeader: string | undefined): Promise<
 
 async function maybeRefresh(env: Env, session: SessionRecord): Promise<SessionRecord | null> {
   if (!sessionNeedsRefresh(session)) return session;
+  // No refresh grant: do not delete the estimate session. The pilot gate trusts
+  // the sign-in groups check until accessExpiresAt, then returns reauth_required.
+  if (!session.refreshToken) return session;
   try {
     const detailed = await refreshSessionDetailed(providerFor(env), session);
     const settings = pilotSettings(env);

@@ -1,0 +1,11 @@
+# Copy to .dev.vars for local development. Never commit .dev.vars.
+# Mock mode is ON here so the app runs without a PingOne tenant.
+# Production wrangler.jsonc sets PINGONE_MOCK=false. Do not ship mock mode.
+
+PINGONE_MOCK=true
+PINGONE_ENV_ID=
+PINGONE_AUTH_HOST=https://auth.pingone.com
+PINGONE_CLIENT_ID=
+PINGONE_CLIENT_SECRET=
+PINGONE_REDIRECT_URI=
+PINGONE_SCOPES=openid profile email offline_access

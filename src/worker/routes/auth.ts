@@ -1,6 +1,16 @@
 import { Hono } from "hono";
 import { csrfMatches, readSessionId, serializeSessionCookie } from "../auth/cookies";
-import { createMockPingOne, MOCK_MFA_PASSWORD, MOCK_OTP, MOCK_PASSWORD, MOCK_USERNAME } from "../auth/mock";
+import {
+  createMockPingOne,
+  MOCK_MFA_PASSWORD,
+  MOCK_OTP,
+  MOCK_PASSWORD,
+  MOCK_REGISTER_EMAIL,
+  MOCK_REGISTER_PASSWORD,
+  MOCK_REGISTER_USERNAME,
+  MOCK_USERNAME,
+  MOCK_VERIFICATION_CODE,
+} from "../auth/mock";
 import {
   advanceLogin,
   beginLogin,
@@ -12,11 +22,19 @@ import {
   sessionNeedsRefresh,
 } from "../auth/orchestrate";
 import { createPkce } from "../auth/pkce";
+import { clientAddress, consumeRateLimit } from "../auth/rate-limit";
 import { createPingOneClient, requirePingConfig } from "../auth/pingone";
 import { AuthFlowError, type AuthProvider, type LoginRecord, type SessionRecord } from "../auth/types";
 import type { Env } from "../env";
 import { HttpError, readJson } from "../http";
-import { deviceBodySchema, loginIdSchema, otpBodySchema, passwordBodySchema } from "../../shared/schemas";
+import {
+  deviceBodySchema,
+  loginIdSchema,
+  otpBodySchema,
+  passwordBodySchema,
+  registerBodySchema,
+  verificationBodySchema,
+} from "../../shared/schemas";
 
 export const authRoutes = new Hono<{ Bindings: Env }>();
 
@@ -30,6 +48,10 @@ authRoutes.get("/config", (c) => {
           password: MOCK_PASSWORD,
           mfaPassword: MOCK_MFA_PASSWORD,
           otp: MOCK_OTP,
+          registerUsername: MOCK_REGISTER_USERNAME,
+          registerEmail: MOCK_REGISTER_EMAIL,
+          registerPassword: MOCK_REGISTER_PASSWORD,
+          verificationCode: MOCK_VERIFICATION_CODE,
         }
       : null,
   });
@@ -73,6 +95,53 @@ authRoutes.post("/login/password", async (c) => {
     username: body.username,
     password: body.password,
   });
+  if (advanced.completed) return finish(c, provider, advanced.record, advanced.completed);
+  await saveLogin(c.env, advanced.record);
+  return c.json(advanced.view);
+});
+
+authRoutes.post("/login/register", async (c) => {
+  assertOrigin(c);
+  await limit(c, "register", 8);
+  const body = await readJson(c.req.raw, registerBodySchema);
+  const record = await loadLogin(c.env, body.loginId);
+  assertStep(record, ["USERNAME_PASSWORD_REQUIRED"]);
+  const provider = providerFor(c.env);
+  const advanced = await advanceLogin(provider, record, {
+    type: "register",
+    username: body.username,
+    email: body.email,
+    password: body.password,
+  });
+  if (advanced.completed) return finish(c, provider, advanced.record, advanced.completed);
+  await saveLogin(c.env, advanced.record);
+  return c.json(advanced.view);
+});
+
+authRoutes.post("/login/verify", async (c) => {
+  assertOrigin(c);
+  await limit(c, "verify", 12);
+  const body = await readJson(c.req.raw, verificationBodySchema);
+  const record = await loadLogin(c.env, body.loginId);
+  assertStep(record, ["VERIFICATION_CODE_REQUIRED", "VERIFICATION_REQUIRED"]);
+  const provider = providerFor(c.env);
+  const advanced = await advanceLogin(provider, record, {
+    type: "verify",
+    verificationCode: body.verificationCode,
+  });
+  if (advanced.completed) return finish(c, provider, advanced.record, advanced.completed);
+  await saveLogin(c.env, advanced.record);
+  return c.json(advanced.view);
+});
+
+authRoutes.post("/login/resend", async (c) => {
+  assertOrigin(c);
+  await limit(c, "resend", 6);
+  const body = await readJson(c.req.raw, loginIdSchema);
+  const record = await loadLogin(c.env, body.loginId);
+  assertStep(record, ["VERIFICATION_CODE_REQUIRED", "VERIFICATION_REQUIRED"]);
+  const provider = providerFor(c.env);
+  const advanced = await advanceLogin(provider, record, { type: "resend" });
   if (advanced.completed) return finish(c, provider, advanced.record, advanced.completed);
   await saveLogin(c.env, advanced.record);
   return c.json(advanced.view);
@@ -261,6 +330,17 @@ async function maybeRefresh(env: Env, session: SessionRecord): Promise<SessionRe
     }
     throw error;
   }
+}
+
+const RATE_WINDOW_SECONDS = 15 * 60;
+
+async function limit(
+  c: { env: Env; req: { header: (name: string) => string | undefined } },
+  action: string,
+  max: number,
+) {
+  const address = clientAddress((name) => c.req.header(name));
+  await consumeRateLimit(c.env.SESSIONS, `rate:${action}:${address}`, max, RATE_WINDOW_SECONDS);
 }
 
 function remainingSeconds(createdAt: number, lifetime: number): number {

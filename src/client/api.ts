@@ -4,7 +4,7 @@ export interface PingOneErrorBody {
   code?: string;
   message?: string;
   target?: string;
-  details?: Array<{ code?: string; target?: string; message?: string }>;
+  details?: Array<{ code?: string; target?: string; message?: string; requirements?: string[] }>;
   correlationId?: string;
   requestId?: string;
 }
@@ -12,12 +12,16 @@ export interface PingOneErrorBody {
 export class ApiError extends Error {
   status: number;
   pingone?: PingOneErrorBody;
+  kind?: string;
+  requirements?: string[];
 
-  constructor(status: number, message: string, pingone?: PingOneErrorBody) {
+  constructor(status: number, message: string, extra?: { pingone?: PingOneErrorBody; kind?: string; requirements?: string[] }) {
     super(message);
     this.name = "ApiError";
     this.status = status;
-    this.pingone = pingone;
+    this.pingone = extra?.pingone;
+    this.kind = extra?.kind;
+    this.requirements = extra?.requirements;
   }
 }
 
@@ -68,7 +72,14 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     const record = data && typeof data === "object" ? (data as Record<string, unknown>) : undefined;
     const message = typeof record?.error === "string" ? record.error : "Request failed.";
-    throw new ApiError(response.status, message, readPingOneError(record?.pingone));
+    const requirements = Array.isArray(record?.requirements)
+      ? record.requirements.filter((item): item is string => typeof item === "string")
+      : undefined;
+    throw new ApiError(response.status, message, {
+      pingone: readPingOneError(record?.pingone),
+      kind: typeof record?.kind === "string" ? record.kind : undefined,
+      requirements: requirements?.length ? requirements : undefined,
+    });
   }
   return data as T;
 }

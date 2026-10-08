@@ -1,6 +1,15 @@
 import { sampleCrews, sampleEstimate, sampleItems } from "../../shared/sample";
 import type { BidItemInput, CrewInput, ResourceInput, UpdateEstimateInput } from "../../shared/schemas";
-import type { Env } from "../env";
+import type { SqlDatabase } from "./sql";
+
+/** What seeding needs from the worker. Kept off `Env` so tests never import Workers globals. */
+export interface SeedStore {
+  DB: SqlDatabase;
+  SESSIONS: {
+    get(key: string): Promise<string | null>;
+    put(key: string, value: string): Promise<unknown>;
+  };
+}
 
 export interface ResourceRecord {
   id: string;
@@ -96,7 +105,7 @@ interface ResourceRow {
   sort_order: number;
 }
 
-export async function ensureSeeded(env: Env, ownerId: string): Promise<void> {
+export async function ensureSeeded(env: SeedStore, ownerId: string): Promise<void> {
   const flagKey = `seeded:${ownerId}`;
   const flagged = await env.SESSIONS.get(flagKey);
   if (flagged) return;
@@ -107,7 +116,7 @@ export async function ensureSeeded(env: Env, ownerId: string): Promise<void> {
   await env.SESSIONS.put(flagKey, "1");
 }
 
-export async function listEstimates(db: D1Database, ownerId: string): Promise<EstimateRecord[]> {
+export async function listEstimates(db: SqlDatabase, ownerId: string): Promise<EstimateRecord[]> {
   const rows = await db
     .prepare("SELECT * FROM estimates WHERE owner_id = ? ORDER BY updated_at DESC")
     .bind(ownerId)
@@ -116,7 +125,7 @@ export async function listEstimates(db: D1Database, ownerId: string): Promise<Es
 }
 
 export async function getEstimate(
-  db: D1Database,
+  db: SqlDatabase,
   ownerId: string,
   id: string,
 ): Promise<EstimateRecord | null> {
@@ -130,7 +139,7 @@ export async function getEstimate(
 }
 
 export async function createEstimate(
-  db: D1Database,
+  db: SqlDatabase,
   ownerId: string,
   input: { name: string; clientName: string; location: string; bidDate?: string },
 ): Promise<EstimateRecord> {
@@ -158,7 +167,7 @@ export async function createEstimate(
 }
 
 export async function updateEstimate(
-  db: D1Database,
+  db: SqlDatabase,
   ownerId: string,
   id: string,
   input: UpdateEstimateInput,
@@ -190,7 +199,7 @@ export async function updateEstimate(
   return getEstimate(db, ownerId, id);
 }
 
-export async function deleteEstimate(db: D1Database, ownerId: string, id: string): Promise<boolean> {
+export async function deleteEstimate(db: SqlDatabase, ownerId: string, id: string): Promise<boolean> {
   const existing = await getEstimate(db, ownerId, id);
   if (!existing) return false;
   const itemIds = existing.items.map((item) => item.id);
@@ -207,7 +216,7 @@ export async function deleteEstimate(db: D1Database, ownerId: string, id: string
 }
 
 export async function createCrew(
-  db: D1Database,
+  db: SqlDatabase,
   ownerId: string,
   estimateId: string,
   input: CrewInput,
@@ -225,7 +234,7 @@ export async function createCrew(
 }
 
 export async function updateCrew(
-  db: D1Database,
+  db: SqlDatabase,
   ownerId: string,
   estimateId: string,
   crewId: string,
@@ -244,7 +253,7 @@ export async function updateCrew(
 }
 
 export async function deleteCrew(
-  db: D1Database,
+  db: SqlDatabase,
   ownerId: string,
   estimateId: string,
   crewId: string,
@@ -259,7 +268,7 @@ export async function deleteCrew(
 }
 
 export async function createItem(
-  db: D1Database,
+  db: SqlDatabase,
   ownerId: string,
   estimateId: string,
   input: BidItemInput,
@@ -290,7 +299,7 @@ export async function createItem(
 }
 
 export async function updateItem(
-  db: D1Database,
+  db: SqlDatabase,
   ownerId: string,
   estimateId: string,
   itemId: string,
@@ -320,7 +329,7 @@ export async function updateItem(
 }
 
 export async function deleteItem(
-  db: D1Database,
+  db: SqlDatabase,
   ownerId: string,
   estimateId: string,
   itemId: string,
@@ -340,7 +349,7 @@ export async function deleteItem(
 }
 
 export async function createResource(
-  db: D1Database,
+  db: SqlDatabase,
   ownerId: string,
   estimateId: string,
   itemId: string,
@@ -370,7 +379,7 @@ export async function createResource(
 }
 
 export async function updateResource(
-  db: D1Database,
+  db: SqlDatabase,
   ownerId: string,
   estimateId: string,
   itemId: string,
@@ -399,7 +408,7 @@ export async function updateResource(
 }
 
 export async function deleteResource(
-  db: D1Database,
+  db: SqlDatabase,
   ownerId: string,
   estimateId: string,
   itemId: string,
@@ -415,7 +424,7 @@ export async function deleteResource(
   return getEstimate(db, ownerId, estimateId);
 }
 
-async function insertSample(db: D1Database, ownerId: string) {
+async function insertSample(db: SqlDatabase, ownerId: string) {
   const now = new Date().toISOString();
   const estimateId = crypto.randomUUID();
   const crewIds = new Map(sampleCrews.map((crew) => [crew.key, crypto.randomUUID()]));
@@ -496,7 +505,7 @@ async function insertSample(db: D1Database, ownerId: string) {
   await db.batch(statements);
 }
 
-async function hydrate(db: D1Database, estimates: EstimateRow[]): Promise<EstimateRecord[]> {
+async function hydrate(db: SqlDatabase, estimates: EstimateRow[]): Promise<EstimateRecord[]> {
   if (!estimates.length) return [];
   const ids = estimates.map((estimate) => estimate.id);
   const marks = ids.map(() => "?").join(", ");
@@ -570,7 +579,7 @@ function group<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
   return map;
 }
 
-async function owns(db: D1Database, ownerId: string, estimateId: string): Promise<boolean> {
+async function owns(db: SqlDatabase, ownerId: string, estimateId: string): Promise<boolean> {
   const row = await db
     .prepare("SELECT id FROM estimates WHERE id = ? AND owner_id = ?")
     .bind(estimateId, ownerId)
@@ -578,7 +587,7 @@ async function owns(db: D1Database, ownerId: string, estimateId: string): Promis
   return Boolean(row);
 }
 
-async function crewOnEstimate(db: D1Database, estimateId: string, crewId: string): Promise<boolean> {
+async function crewOnEstimate(db: SqlDatabase, estimateId: string, crewId: string): Promise<boolean> {
   const row = await db
     .prepare("SELECT id FROM crews WHERE id = ? AND estimate_id = ?")
     .bind(crewId, estimateId)
@@ -587,7 +596,7 @@ async function crewOnEstimate(db: D1Database, estimateId: string, crewId: string
 }
 
 async function itemOnOwnedEstimate(
-  db: D1Database,
+  db: SqlDatabase,
   ownerId: string,
   estimateId: string,
   itemId: string,
@@ -603,7 +612,7 @@ async function itemOnOwnedEstimate(
   return Boolean(row);
 }
 
-async function nextSort(db: D1Database, table: "crews" | "bid_items" | "resources", column: string, id: string) {
+async function nextSort(db: SqlDatabase, table: "crews" | "bid_items" | "resources", column: string, id: string) {
   const row = await db
     .prepare(`SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM ${table} WHERE ${column} = ?`)
     .bind(id)
@@ -611,7 +620,7 @@ async function nextSort(db: D1Database, table: "crews" | "bid_items" | "resource
   return row?.n ?? 1;
 }
 
-async function touch(db: D1Database, ownerId: string, estimateId: string) {
+async function touch(db: SqlDatabase, ownerId: string, estimateId: string) {
   await db
     .prepare("UPDATE estimates SET updated_at = ? WHERE id = ? AND owner_id = ?")
     .bind(new Date().toISOString(), estimateId, ownerId)

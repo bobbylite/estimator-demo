@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, ApiError, setCsrf, type PingOneErrorBody } from "../api";
@@ -9,6 +9,10 @@ interface Hints {
   password: string;
   mfaPassword: string;
   otp: string;
+  registerUsername: string;
+  registerEmail: string;
+  registerPassword: string;
+  verificationCode: string;
 }
 
 interface Config {
@@ -300,6 +304,9 @@ export function LoginPage() {
             ) : null}
           </form>
           <p className="fine">Session cookie is httpOnly. Sign-out, expiry, and refresh stay on the server.</p>
+          <p className="auth-switch">
+            New to the bid book? <Link to="/register">Create account</Link>
+          </p>
         </div>
       </section>
     </main>

@@ -1,4 +1,6 @@
-const STATEMENTS = [
+import type { SqlDatabase } from "./sql";
+
+export const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS estimates (
     id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL,
@@ -52,7 +54,7 @@ const STATEMENTS = [
 
 let schemaReady: Promise<void> | null = null;
 
-export function ensureSchema(db: D1Database): Promise<void> {
+export function ensureSchema(db: SqlDatabase): Promise<void> {
   if (!schemaReady) {
     schemaReady = applySchema(db).catch((error: unknown) => {
       schemaReady = null;
@@ -62,7 +64,7 @@ export function ensureSchema(db: D1Database): Promise<void> {
   return schemaReady;
 }
 
-async function applySchema(db: D1Database): Promise<void> {
+async function applySchema(db: SqlDatabase): Promise<void> {
   for (const statement of STATEMENTS) {
     await db.prepare(statement).run();
   }

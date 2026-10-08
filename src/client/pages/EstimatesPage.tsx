@@ -2,7 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { PilotNotice } from "../components/PilotNotice";
+import { PilotNotice, useAiResting } from "../components/PilotNotice";
 import { Shell } from "../components/Shell";
 import { Dialog, Mix } from "../components/ui";
 import { formatDate, formatMoney, STATUS_LABEL } from "../format";
@@ -11,6 +11,7 @@ import type { EstimateSummary } from "../types";
 
 export function EstimatesPage() {
   const session = useSession();
+  const resting = useAiResting(Boolean(session.data?.user));
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const estimates = useQuery({
@@ -73,7 +74,7 @@ export function EstimatesPage() {
             New estimate
           </button>
         </div>
-        <PilotNotice pilot={session.data?.pilot} />
+        <PilotNotice pilot={session.data?.pilot} resting={Boolean(resting.data?.resting)} />
         <div className="filters">
           <input
             aria-label="Search estimates"

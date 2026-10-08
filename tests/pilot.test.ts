@@ -40,6 +40,7 @@ const settingsOn: PilotSettings = {
   groupsClaim: "groups",
   callsPerHour: 30,
   tokensPerDay: 100_000,
+  dailyBudgetUsd: 5,
 };
 
 function memoryKv(): RateKv {
@@ -145,6 +146,7 @@ describe("pilot gate", () => {
       groupsClaim: "pilot_groups",
       callsPerHour: 4,
       tokensPerDay: 50,
+      dailyBudgetUsd: 5,
     });
     expect(pilotSettings({ AI_USER_CALLS_PER_HOUR: "0" }).callsPerHour).toBe(DEFAULT_CALLS_PER_HOUR);
     expect(pilotSettings({ AI_USER_TOKENS_PER_DAY: "nope" }).tokensPerDay).toBe(DEFAULT_TOKENS_PER_DAY);

@@ -15,7 +15,8 @@
     "AI_PILOT_GROUP": "Meridian AI Pilot",
     "AI_PILOT_GROUPS_CLAIM": "groups",
     "AI_USER_CALLS_PER_HOUR": "30",
-    "AI_USER_TOKENS_PER_DAY": "100000"
+    "AI_USER_TOKENS_PER_DAY": "100000",
+    "AI_DAILY_BUDGET_USD": "5"
   },
   "d1_databases": [
     {

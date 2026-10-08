@@ -208,6 +208,9 @@ These are plain Worker vars in `wrangler.jsonc` `vars`, not secrets, so the gate
 | `AI_PILOT_GROUPS_CLAIM` | `groups` | ID-token claim that carries the groups. |
 | `AI_USER_CALLS_PER_HOUR` | `30` | Per-user cap. `429` with `kind: "ai_call_limit"`. |
 | `AI_USER_TOKENS_PER_DAY` | `100000` | Per-user cap, because the Jev key is Robert's. `429` with `kind: "ai_token_limit"`. |
+| `AI_DAILY_BUDGET_USD` | `5` | Shared estimated Jev spend for all users in one UTC day. `429` with `kind: "ai_daily_budget"`. |
+
+The daily cap applies whether the pilot gate is on or off. Jev reports `usage.input_tokens` and `usage.output_tokens`, not dollars. No official TypeSafe price is published in this repo, so Meridian estimates cost with a deliberately high assumption: **$15 per million input tokens** and **$60 per million output tokens**. That overstates spend so the cap trips before the real bill reaches the limit. Tighten `AI_DAILY_BUDGET_USD` if the assumption is too coarse. The ledger is one KV key per UTC day. When it is already at the cap, further AI calls are refused until the next UTC day and the page says “AI is resting for today.” Estimating stays open. If the ledger cannot be read, the call is refused. Per-user call and token limits still apply on top of this cap.
 
 Local `.dev.vars` sets `AI_PILOT_GATE_ENABLED=true` so the mock demo shows both sides of the gate. Do not commit `.dev.vars`.
 

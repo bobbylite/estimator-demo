@@ -3,6 +3,7 @@ import type { RateKv } from "../auth/rate-limit";
 import type { SessionRecord } from "../auth/types";
 import { HttpError } from "../http";
 import { consumeAiBudget } from "./budget";
+import { assertDailyBudget, DEFAULT_DAILY_BUDGET_USD } from "./spend";
 import {
   DEFAULT_GROUPS_CLAIM,
   DEFAULT_PILOT_GROUP,
@@ -11,6 +12,7 @@ import {
 
 export const DEFAULT_CALLS_PER_HOUR = 30;
 export const DEFAULT_TOKENS_PER_DAY = 100_000;
+export { DEFAULT_DAILY_BUDGET_USD };
 /** Re-read the ID token before an AI call when the stored check is older than this. */
 export const PILOT_MAX_AGE_MS = 5 * 60 * 1000;
 
@@ -23,6 +25,7 @@ export interface PilotConfigSource {
   AI_PILOT_GROUPS_CLAIM?: string;
   AI_USER_CALLS_PER_HOUR?: string;
   AI_USER_TOKENS_PER_DAY?: string;
+  AI_DAILY_BUDGET_USD?: string;
 }
 
 export interface PilotSettings {
@@ -31,6 +34,7 @@ export interface PilotSettings {
   groupsClaim: string;
   callsPerHour: number;
   tokensPerDay: number;
+  dailyBudgetUsd: number;
 }
 
 export interface PilotView {
@@ -51,6 +55,7 @@ export function pilotSettings(env: PilotConfigSource): PilotSettings {
     groupsClaim: env.AI_PILOT_GROUPS_CLAIM?.trim() || DEFAULT_GROUPS_CLAIM,
     callsPerHour: positiveInt(env.AI_USER_CALLS_PER_HOUR, DEFAULT_CALLS_PER_HOUR),
     tokensPerDay: positiveInt(env.AI_USER_TOKENS_PER_DAY, DEFAULT_TOKENS_PER_DAY),
+    dailyBudgetUsd: positiveNumber(env.AI_DAILY_BUDGET_USD, DEFAULT_DAILY_BUDGET_USD),
   };
 }
 
@@ -98,6 +103,7 @@ export async function authorizeAiCall(input: {
     }
     if (!current.pilotMember) throw new HttpError(403, PILOT_REQUIRED, "pilot_required");
   }
+  await assertDailyBudget(input.kv, input.settings.dailyBudgetUsd, now);
   await consumeAiBudget(input.kv, {
     userId: current.user.id,
     callsPerHour: input.settings.callsPerHour,
@@ -156,8 +162,14 @@ async function refreshMembership(
 }
 
 function positiveInt(value: string | undefined, fallback: number): number {
-  if (!value || !/^\d+$/.test(value.trim())) return fallback;
+  const parsed = positiveNumber(value, Number.NaN);
+  if (!Number.isInteger(parsed)) return fallback;
+  return parsed;
+}
+
+function positiveNumber(value: string | undefined, fallback: number): number {
+  if (!value || !/^\d+(\.\d+)?$/.test(value.trim())) return fallback;
   const parsed = Number(value.trim());
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) return fallback;
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return parsed;
 }

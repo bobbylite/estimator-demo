@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { priceEstimate, type Markups } from "../../shared/costing";
 import { UNITS, bidItemSchema, resourceSchema } from "../../shared/schemas";
 import { api } from "../api";
-import { PilotNotice } from "../components/PilotNotice";
+import { PilotNotice, useAiResting } from "../components/PilotNotice";
 import { Shell } from "../components/Shell";
 import { Dialog, Mix } from "../components/ui";
 import { formatDate, formatHours, formatMoney, formatQty, STATUS_LABEL } from "../format";
@@ -16,6 +16,7 @@ type Tab = "items" | "crews" | "summary";
 export function EstimatePage() {
   const { estimateId } = useParams({ from: "/estimates/$estimateId" });
   const session = useSession();
+  const resting = useAiResting(Boolean(session.data?.user));
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const query = useQuery({
@@ -312,7 +313,7 @@ export function EstimatePage() {
           <div className="metric"><span>Items</span><b>{bid.items.length}</b></div>
         </section>
         <Mix {...totals} />
-        <PilotNotice pilot={session.data?.pilot} />
+        <PilotNotice pilot={session.data?.pilot} resting={Boolean(resting.data?.resting)} />
         <div className="legend" style={{ margin: "8px 0 16px" }}>
           <span><i className="swatch labor" /> Labor {formatMoney(totals.labor, true)}</span>
           <span><i className="swatch equip" /> Equipment {formatMoney(totals.equipment, true)}</span>

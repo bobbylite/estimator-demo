@@ -1,6 +1,18 @@
 import type { AuthProvider, FlowOutcome, LoginRecord, LoginView, Profile, SessionRecord } from "./types";
 import { AuthFlowError } from "./types";
 
+export const REGISTRATION_DISABLED =
+  "Registration is not enabled for this PingOne application. In the admin console, open the sign-on policy attached to Meridian, add the Registration action, choose the population new users join, and turn on email verification if new accounts should enter a code.";
+
+export type LoginAction =
+  | { type: "password"; username: string; password: string }
+  | { type: "otp"; otp: string }
+  | { type: "device"; deviceId: string }
+  | { type: "read" }
+  | { type: "register"; username: string; email: string; password: string }
+  | { type: "verify"; verificationCode: string }
+  | { type: "resend" };
+
 export const SESSION_SECONDS = 60 * 60 * 12;
 export const LOGIN_SECONDS = 60 * 15;
 const REFRESH_SKEW_MS = 60_000;
@@ -14,6 +26,15 @@ export function viewForOutcome(loginId: string, outcome: FlowOutcome): LoginView
         loginId,
         username: outcome.username,
         message: outcome.message,
+        canRegister: outcome.canRegister,
+      };
+    case "VERIFICATION_CODE_REQUIRED":
+    case "VERIFICATION_REQUIRED":
+      return {
+        step: "verification",
+        loginId,
+        email: outcome.maskedEmail,
+        message: outcome.message ?? "Enter the 8-character verification code from your email.",
       };
     case "OTP_REQUIRED":
       return {
@@ -71,8 +92,11 @@ export async function beginLogin(
 export async function advanceLogin(
   provider: AuthProvider,
   record: LoginRecord,
-  action: { type: "password"; username: string; password: string } | { type: "otp"; otp: string } | { type: "device"; deviceId: string } | { type: "read" },
+  action: LoginAction,
 ): Promise<{ record: LoginRecord; view: LoginView; completed?: FlowOutcome }> {
+  if (action.type === "register" && !record.canRegister) {
+    throw new AuthFlowError(409, REGISTRATION_DISABLED, undefined, { kind: "registration_disabled" });
+  }
   const ctx = { flowId: record.flowId, cookies: record.cookies, state: record.state };
   const outcome =
     action.type === "password"
@@ -81,7 +105,13 @@ export async function advanceLogin(
         ? await provider.checkOtp(ctx, action.otp)
         : action.type === "device"
           ? await provider.selectDevice(ctx, action.deviceId)
-          : await provider.read(ctx);
+          : action.type === "register"
+            ? await provider.register(ctx, action)
+            : action.type === "verify"
+              ? await provider.verifyRegistration(ctx, action.verificationCode)
+              : action.type === "resend"
+                ? await provider.resendVerification(ctx)
+                : await provider.read(ctx);
   const next = recordFrom(record.id, record, outcome);
   if (isComplete(outcome)) return { record: next, view: placeholder(record.id), completed: outcome };
   return { record: next, view: viewForOutcome(record.id, outcome) };
@@ -143,7 +173,7 @@ function sessionFromTokens(
 
 function recordFrom(
   id: string,
-  prior: { state: string; nonce: string; codeVerifier: string; createdAt?: number },
+  prior: { state: string; nonce: string; codeVerifier: string; createdAt?: number; canRegister?: boolean },
   outcome: FlowOutcome,
 ): LoginRecord {
   return {
@@ -154,6 +184,7 @@ function recordFrom(
     nonce: prior.nonce,
     codeVerifier: prior.codeVerifier,
     status: outcome.status,
+    canRegister: outcome.canRegister || prior.canRegister || false,
     createdAt: prior.createdAt ?? Date.now(),
   };
 }

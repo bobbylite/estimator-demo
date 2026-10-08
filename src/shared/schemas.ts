@@ -82,6 +82,18 @@ export const loginIdSchema = z.object({
   loginId: z.string().min(8),
 });
 
+export const registerBodySchema = z.object({
+  loginId: z.string().min(8),
+  username: z.string().trim().min(1, "Enter a username").max(200),
+  email: z.email("Enter a valid email").trim().max(200),
+  password: z.string().min(1, "Enter a password").max(200),
+});
+
+export const verificationBodySchema = z.object({
+  loginId: z.string().min(8),
+  verificationCode: z.string().trim().min(4, "Enter the verification code").max(32),
+});
+
 export type CreateEstimateInput = z.infer<typeof createEstimateSchema>;
 export type UpdateEstimateInput = z.infer<typeof updateEstimateSchema>;
 export type CrewInput = z.infer<typeof crewSchema>;

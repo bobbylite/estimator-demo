@@ -2,11 +2,13 @@ import type { ZodType } from "zod";
 
 export class HttpError extends Error {
   status: number;
+  kind?: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, kind?: string) {
     super(message);
     this.name = "HttpError";
     this.status = status;
+    this.kind = kind;
   }
 }
 

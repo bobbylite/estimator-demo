@@ -93,8 +93,11 @@ Mock account:
 | Username | `robert@meridian.test` |
 | Password | `stake-demo` |
 | MFA password | `mfa-demo`, then code `482913` |
+| Create account | `ada@meridian.test` / `Stake-1847`, then code `18472639` |
 
-The first sign-in seeds **US 183 Frontage & Drainage — Segment 4**. Change a quantity and the bid total updates before you save. Save persists it in local D1.
+The first time an account opens the bid book, Meridian copies **US 183 Frontage & Drainage — Segment 4** into that account only. Estimates are stored with `owner_id` and every read or write is filtered by the signed-in user, so two testers never see each other’s bids. Change a quantity and the bid total updates before you save. Save persists it in local D1.
+
+Create account is linked from the sign-in screen. The mock password check requires 8 characters, a letter, and a number. `robert@meridian.test` is already taken. A weak password lists those requirements on the form.
 
 Mock mode is active only when `PINGONE_MOCK` is the string `true`. `wrangler.jsonc` sets it to `false`. Do not deploy with mock mode on.
 
@@ -112,6 +115,30 @@ Create these in the PingOne admin console for the environment Robert will use. T
 8. **Scopes:** request `openid profile email offline_access`. If the application has an OpenID resource grant, include `offline_access` on that grant so a refresh token is issued. If it has no resource grant, PingOne still issues a refresh token for the authorization-code grant when Refresh Token is enabled.
 9. **CORS:** not required. The Worker calls PingOne, not the browser.
 10. Copy the **Environment ID**, **Client ID**, and **Client Secret**.
+
+### Self-service registration
+
+Meridian stays on its own pages. The BFF starts the same `pi.flow` authorize request used for sign-in. When the flow’s `_links` include `user.register`, the create-account form posts to the BFF, and the BFF calls PingOne:
+
+| Step | Method and body |
+| --- | --- |
+| Register | `POST /{envId}/flows/{flowId}` with `Content-Type: application/vnd.pingidentity.user.register+json` and `{"username","email","password"}` |
+| Verify | same URL with `application/vnd.pingidentity.user.verify+json` and `{"verificationCode"}` |
+| Resend | same URL with `application/vnd.pingidentity.user.sendVerificationCode+json` and `{}` |
+
+The verification code is 8 alphanumeric characters and has no timeout ([verify user](https://developer.pingidentity.com/pingone-api/auth/flows/registration-and-verification/verify-user.html)). A successful verify returns `COMPLETED`, and Meridian exchanges the authorization code for a normal session. Password-policy failures, `UNIQUENESS_VIOLATION`, and an invalid `verificationCode` are shown on the form with PingOne’s code, message, and details. If `user.register` is missing from the flow, the page tells you registration is off.
+
+The resend call sends an empty JSON object. The flow docs page currently copies the verify request model and lists `verificationCode` as required, but the action text is only “send the user a new account verification email,” and the management API with this same media type has an empty body ([register](https://developer.pingidentity.com/pingone-api/auth/flows/registration-and-verification/register-user.html), [resend](https://developer.pingidentity.com/pingone-api/auth/flows/registration-and-verification/send-resend-verification-code.html)).
+
+Turn these on in the tenant:
+
+1. **Registration action.** Edit the sign-on policy attached to the Meridian application and add Registration. That is what puts `user.register` on the `USERNAME_PASSWORD_REQUIRED` flow. Without it, create account explains that registration is not enabled.
+2. **Population.** On that Registration action, choose the population new users join.
+3. **Email verification.** Enable account verification so PingOne returns `VERIFICATION_CODE_REQUIRED` and emails the 8-character code. The environment needs a working email sender and the verification notification enabled. Users type the code into Meridian; the browser is not sent to a hosted page.
+4. **Password policy.** The population’s password policy is what rejects weak passwords. Meridian lists each `INVALID_VALUE` on `password`, including any requirement strings PingOne puts in `innerError`.
+5. **Uniqueness.** A username or email that already exists comes back as `UNIQUENESS_VIOLATION`. Meridian says the account is already registered.
+
+Sign-up, verification, and resend are limited per IP in KV (8, 12, and 6 attempts per 15 minutes). The address is `CF-Connecting-IP`. This uses the existing `SESSIONS` namespace, so no extra Cloudflare product is required.
 
 Auth hosts, from PingOne’s regional API domains:
 

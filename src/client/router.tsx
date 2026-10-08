@@ -8,6 +8,7 @@ import {
 import { EstimatePage } from "./pages/EstimatePage";
 import { EstimatesPage } from "./pages/EstimatesPage";
 import { LoginPage } from "./pages/LoginPage";
+import { RegisterPage } from "./pages/RegisterPage";
 import { sessionQueryOptions } from "./session";
 import type { QueryClient } from "@tanstack/react-query";
 
@@ -49,6 +50,16 @@ export function createAppRouter(queryClient: QueryClient) {
     component: LoginPage,
   });
 
+  const registerRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/register",
+    beforeLoad: async () => {
+      const session = await queryClient.ensureQueryData(sessionQueryOptions);
+      if (session.user) throw redirect({ to: "/estimates" });
+    },
+    component: RegisterPage,
+  });
+
   const estimatesRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/estimates",
@@ -69,7 +80,7 @@ export function createAppRouter(queryClient: QueryClient) {
     component: EstimatePage,
   });
 
-  const routeTree = rootRoute.addChildren([loginRoute, estimatesRoute, estimateRoute]);
+  const routeTree = rootRoute.addChildren([loginRoute, registerRoute, estimatesRoute, estimateRoute]);
   return createRouter({
     routeTree,
     context: { queryClient },

@@ -326,7 +326,7 @@ export function EstimatePage() {
         <div className="tabs" role="tablist" aria-label="Estimate sections">
           {(["items", "crews", "summary", "ai"] as const).map((value) => (
             <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}>
-              {value === "items" ? "Bid items" : value === "crews" ? "Crews" : value === "summary" ? "Summary" : "Jev"}
+              {value === "items" ? "Bid items" : value === "crews" ? "Crews" : value === "summary" ? "Summary" : "AI"}
             </button>
           ))}
         </div>

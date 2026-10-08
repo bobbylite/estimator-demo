@@ -13,11 +13,15 @@ import {
 export const DEFAULT_CALLS_PER_HOUR = 30;
 export const DEFAULT_TOKENS_PER_DAY = 100_000;
 export { DEFAULT_DAILY_BUDGET_USD };
-/** Re-read the ID token before an AI call when the stored check is older than this. */
+/** Re-read the ID token before an AI call when a refresh token is present and the stored check is older than this. */
 export const PILOT_MAX_AGE_MS = 5 * 60 * 1000;
 
 export const PILOT_REQUIRED = "AI is in a private pilot. An admin adds people to the pilot group in PingOne.";
 export const PILOT_UNCONFIRMED = "AI pilot membership could not be confirmed. Try again in a moment.";
+export const REAUTH_REQUIRED = "Sign in again to keep using Jev.";
+
+/** One warning per session object, which is one parsed session per request. */
+const warnedMissingRefresh = new WeakSet<SessionRecord>();
 
 export interface PilotConfigSource {
   AI_PILOT_GATE_ENABLED?: string;
@@ -91,6 +95,7 @@ export async function requirePilotMember(input: {
   const now = input.now ?? Date.now();
   let current = input.session;
   if (!input.settings.gateEnabled) return current;
+  if (!hasRefreshToken(current)) return membershipWithoutRefreshToken(current, now);
   const checkedAt = current.pilotCheckedAt ?? 0;
   if (now - checkedAt > PILOT_MAX_AGE_MS) {
     current = await refreshMembership(input.settings, current, input.refresh, input.save, now);
@@ -101,8 +106,9 @@ export async function requirePilotMember(input: {
 
 /**
  * Gate and per-user budget for one AI call.
- * When the gate is on, a check older than about five minutes refreshes the token first.
+ * When the gate is on and the session has a refresh token, a check older than about five minutes refreshes the token first.
  * A failed refresh denies the call and leaves the estimate session in place.
+ * With no refresh token, the sign-in groups check is trusted until the access token expires.
  */
 export async function authorizeAiCall(input: {
   settings: PilotSettings;
@@ -148,6 +154,33 @@ export function applyPilotToggle(
     },
     settings,
     now,
+  );
+}
+
+function hasRefreshToken(session: SessionRecord): boolean {
+  return typeof session.refreshToken === "string" && session.refreshToken.length > 0;
+}
+
+/**
+ * PingOne issued no refresh token, so the groups claim cannot be re-read.
+ * Trust `pilotMember` from sign-in until `accessExpiresAt`, then require a new sign-in.
+ */
+function membershipWithoutRefreshToken(session: SessionRecord, now: number): SessionRecord {
+  warnMissingRefreshToken(session);
+  if (now >= session.accessExpiresAt) throw new HttpError(401, REAUTH_REQUIRED, "reauth_required");
+  if (!session.pilotMember) throw new HttpError(403, PILOT_REQUIRED, "pilot_required");
+  return session;
+}
+
+function warnMissingRefreshToken(session: SessionRecord): void {
+  if (warnedMissingRefresh.has(session)) return;
+  warnedMissingRefresh.add(session);
+  console.warn(
+    JSON.stringify({
+      event: "pingone.refresh_token.missing",
+      message:
+        "PingOne did not issue a refresh token. AI pilot membership uses the sign-in groups check until the access token expires.",
+    }),
   );
 }
 

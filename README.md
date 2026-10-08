@@ -116,6 +116,10 @@ Create these in the PingOne admin console for the environment Robert will use. T
 9. **CORS:** not required. The Worker calls PingOne, not the browser.
 10. Copy the **Environment ID**, **Client ID**, and **Client Secret**.
 
+The Meridian app should have the **Refresh Token** grant enabled. With that grant, and with `offline_access` on the OpenID resource grant when that grant exists, PingOne returns a refresh token. Meridian re-reads the groups claim about every five minutes, so removing someone from the pilot group takes effect on the next AI call after that check. If that refresh fails while the gate is on, the AI call is refused.
+
+If the Refresh Token grant is not enabled, PingOne does not issue a refresh token. AI keeps working until the access token expires (about an hour by default), using the groups check from sign-in. After that, the user must sign in again. Group removal is only picked up at the next sign-in when there is no refresh token.
+
 ### Self-service registration
 
 Meridian stays on its own pages. The BFF starts the same `pi.flow` authorize request used for sign-in. When the flow’s `_links` include `user.register`, the create-account form posts to the BFF, and the BFF calls PingOne:
@@ -220,7 +224,7 @@ PingOne puts group membership in the **ID token**, not the access token. That is
 
 The BFF already requests `openid`, so the refresh grant returns a new ID token. [Token (refresh_token) (CLIENT_SECRET_BASIC)](https://developer.pingidentity.com/pingone-api/auth/openid-connect-oauth-2/token/token-refresh_token-client-secret-basic.html) is `POST /{envId}/as/token` with `grant_type=refresh_token` and `Authorization: Basic`. PingOne's page says that if the `openid` scope is granted, an ID token is included. The BFF decodes that ID token's payload. It received the token from PingOne over TLS. It does not accept a group list from the browser. The claim may be a JSON array, a single string, or a comma-separated string. A missing or undecodable claim is not membership.
 
-Membership is stored on the session at sign-in and again whenever the access token is refreshed. Before an AI call, if that check is older than five minutes, the BFF refreshes the token and reads the new ID token, so removing someone from the group takes effect without waiting out the access-token lifetime. If the gate is on and that refresh fails, or the new response has no ID token, the AI call is refused. The estimate session stays signed in.
+Membership is stored on the session at sign-in and again when a refresh grant returns a new ID token. When the session has a refresh token and that check is older than five minutes, the BFF refreshes the token and reads the new ID token, so removing someone from the group takes effect without waiting out the access-token lifetime. If the gate is on and that refresh fails, or the new response has no ID token, the AI call is refused. The estimate session stays signed in. When PingOne did not issue a refresh token, the sign-in check stands until the access token expires; see the Refresh Token note under PingOne setup.
 
 ### What Robert clicks in PingOne
 

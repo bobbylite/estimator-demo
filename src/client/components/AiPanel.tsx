@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { api } from "../api";
-import type { PilotState } from "../session";
+import { api, ApiError, setCsrf } from "../api";
+import type { PilotState, SessionPayload } from "../session";
 
 export interface AiDecision {
   id: string;
@@ -28,8 +29,16 @@ export function useAiDecisions(estimateId: string, enabled: boolean) {
   return useQuery({
     queryKey: ["ai", estimateId],
     enabled,
+    retry: (failureCount, error) => {
+      if (isReauth(error)) return false;
+      return failureCount < 3;
+    },
     queryFn: () => api<AiPayload>(`/api/ai/decisions?estimateId=${encodeURIComponent(estimateId)}`),
   });
+}
+
+function isReauth(reason: unknown): boolean {
+  return reason instanceof ApiError && reason.kind === "reauth_required";
 }
 
 export function DecisionMarks({ itemId, decisions }: { itemId: string; decisions: AiDecision[] }) {
@@ -57,8 +66,10 @@ export function AiPanel({
   resting?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const ai = useAiDecisions(estimateId, allowed);
   const [pending, setPending] = useState(false);
+  const [reauth, setReauth] = useState(false);
   const [error, setError] = useState("");
   const [threshold, setThreshold] = useState<number | null>(null);
   const decisions = ai.data?.decisions ?? [];
@@ -69,8 +80,16 @@ export function AiPanel({
 
   async function saveThreshold(next: number) {
     setThreshold(next);
-    await api("/api/ai/threshold", { method: "PUT", body: JSON.stringify({ threshold: next }) });
-    await queryClient.invalidateQueries({ queryKey: ["ai", estimateId] });
+    try {
+      await api("/api/ai/threshold", { method: "PUT", body: JSON.stringify({ threshold: next }) });
+      await queryClient.invalidateQueries({ queryKey: ["ai", estimateId] });
+    } catch (reason) {
+      if (isReauth(reason)) {
+        setReauth(true);
+        return;
+      }
+      throw reason;
+    }
   }
 
   async function run() {
@@ -82,10 +101,32 @@ export function AiPanel({
       await queryClient.invalidateQueries({ queryKey: ["estimate", estimateId] });
       await queryClient.invalidateQueries({ queryKey: ["estimates"] });
     } catch (reason) {
+      if (isReauth(reason)) {
+        setReauth(true);
+        return;
+      }
       setError(reason instanceof Error ? reason.message : "Jev could not read this estimate.");
     } finally {
       setPending(false);
     }
+  }
+
+  async function signInAgain() {
+    setPending(true);
+    try {
+      await api("/api/auth/logout", { method: "POST" });
+    } catch {
+      // The prompt still sends the user to sign in.
+    }
+    setCsrf(null);
+    const cached = queryClient.getQueryData<SessionPayload>(["session"]);
+    queryClient.setQueryData(["session"], {
+      user: null,
+      csrfToken: null,
+      mock: Boolean(cached?.mock),
+      pilot: pilot ?? cached?.pilot ?? { gateEnabled: false, member: false, group: "" },
+    });
+    await navigate({ to: "/" });
   }
 
   async function act(id: string, action: "accept" | "dismiss") {
@@ -97,10 +138,27 @@ export function AiPanel({
       await queryClient.invalidateQueries({ queryKey: ["estimate", estimateId] });
       await queryClient.invalidateQueries({ queryKey: ["estimates"] });
     } catch (reason) {
+      if (isReauth(reason)) {
+        setReauth(true);
+        return;
+      }
       setError(reason instanceof Error ? reason.message : "Could not update that decision.");
     } finally {
       setPending(false);
     }
+  }
+
+  if (reauth || isReauth(ai.error)) {
+    return (
+      <section className="pilot-banner is-out" aria-label="Sign in again">
+        <p className="kicker">Jev</p>
+        <h2>Sign in again to keep using Jev</h2>
+        <p>This sign-in cannot refresh membership. Jev stops here until you sign in again. Estimates stay open.</p>
+        <button type="button" className="btn" style={{ marginTop: 12 }} disabled={pending} onClick={() => void signInAgain()}>
+          Sign in
+        </button>
+      </section>
+    );
   }
 
   if (!allowed) {

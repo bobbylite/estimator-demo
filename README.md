@@ -275,6 +275,30 @@ npm run deploy
 
 Sessions use `Secure` cookies on HTTPS, which is what Workers serve. Local `vite` is HTTP, so the cookie is not marked `Secure` there; otherwise the browser would drop it and the mock demo could not sign in.
 
+## Auto-deploy
+
+A push to `main` runs `.github/workflows/deploy.yml`. It repeats the CI verify job first (Node.js 22, `npm ci`, lint, typecheck, test, and build). `npm run migrate:remote` and `npm run deploy` run only after that job succeeds, using the Wrangler version pinned in `package-lock.json`. A push to any other branch does not deploy. **Run workflow** deploys the branch selected on the Actions tab; select `main`.
+
+Node.js 22 is already required (`engines` in `package.json`, and CI).
+
+Add these GitHub repository secrets (Settings → Secrets and variables → Actions). Wrangler reads the same names from the environment. Do not commit the token.
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+
+Minimum API token permissions for this workflow. The dashboard still lists the Edit names; the API and the [token template table](https://developers.cloudflare.com/fundamentals/api/reference/template/) call the same grants Write:
+
+| Permission | API name | Why it is required |
+| --- | --- | --- |
+| Account / Workers Scripts / Edit | Workers Scripts Write | `wrangler deploy` of the existing Worker. The newer Workers role for the same access is Editor on the Workers product, or Editor on `meridian-estimator`. |
+| Account / D1 / Edit | D1 Write | `npm run migrate:remote` writes SQL. Deploying the D1 binding does not need a D1 permission; applying migrations does. |
+
+Checked against the current docs: [GitHub Actions](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/) (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and the Edit Cloudflare Workers template), [Workers roles](https://developers.cloudflare.com/workers/authorization/workers/) (deploy an existing Worker needs Editor; a KV or D1 binding does not need that product’s permission), [roles overview](https://developers.cloudflare.com/workers/authorization/) (querying D1 does), [API token permissions](https://developers.cloudflare.com/fundamentals/api/reference/permissions/) (Workers Scripts Edit, D1 Edit, and the Write names), [D1 release notes](https://developers.cloudflare.com/d1/platform/release-notes/) (`D1:Edit` for database writes), and the [D1 import tutorial](https://developers.cloudflare.com/d1/tutorials/import-to-d1-with-rest-api/) (Account, D1, Edit). Script upload accepts [Workers Scripts Write](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/methods/update/).
+
+Workers KV Storage Edit is not required. This workflow only binds the existing `SESSIONS` namespace. Account Settings Read is not required because `CLOUDFLARE_ACCOUNT_ID` is set, so Wrangler does not list accounts or memberships. Workers Routes is not required: `wrangler.jsonc` has no routes or custom domains. The Edit Cloudflare Workers template omits D1 and includes those extra permissions. Use a custom token with the two permissions above, scoped to this account.
+
+`PINGONE_CLIENT_SECRET` and `JEV_API_KEY` are not GitHub secrets. They stay as Worker secrets in Cloudflare. This workflow does not set or print them.
+
 ## Scripts
 
 | Script | Purpose |

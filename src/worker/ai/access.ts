@@ -67,9 +67,10 @@ export function publicPilot(settings: PilotSettings, session: { pilotMember?: bo
   };
 }
 
-/** Model calls live under this prefix. Estimate routes are not in the list. */
+/** Model calls and AI decision routes. Estimate routes and the status read are outside the gate. */
 export function aiGateCovers(pathname: string): boolean {
-  return pathname === "/api/ai/decisions" || pathname.startsWith("/api/ai/decisions/");
+  if (pathname === "/api/ai/status") return false;
+  return pathname === "/api/ai" || pathname.startsWith("/api/ai/");
 }
 
 export function stampPilot(session: SessionRecord, settings: PilotSettings, now = Date.now()): SessionRecord {
@@ -78,6 +79,24 @@ export function stampPilot(session: SessionRecord, settings: PilotSettings, now 
     pilotMember: memberFromIdToken(session.idToken, settings.groupsClaim, settings.group),
     pilotCheckedAt: now,
   };
+}
+
+export async function requirePilotMember(input: {
+  settings: PilotSettings;
+  session: SessionRecord;
+  now?: number;
+  refresh?: () => Promise<RefreshedPilot>;
+  save?: (session: SessionRecord) => Promise<void>;
+}): Promise<SessionRecord> {
+  const now = input.now ?? Date.now();
+  let current = input.session;
+  if (!input.settings.gateEnabled) return current;
+  const checkedAt = current.pilotCheckedAt ?? 0;
+  if (now - checkedAt > PILOT_MAX_AGE_MS) {
+    current = await refreshMembership(input.settings, current, input.refresh, input.save, now);
+  }
+  if (!current.pilotMember) throw new HttpError(403, PILOT_REQUIRED, "pilot_required");
+  return current;
 }
 
 /**
@@ -95,14 +114,7 @@ export async function authorizeAiCall(input: {
   save?: (session: SessionRecord) => Promise<void>;
 }): Promise<SessionRecord> {
   const now = input.now ?? Date.now();
-  let current = input.session;
-  if (input.settings.gateEnabled) {
-    const checkedAt = current.pilotCheckedAt ?? 0;
-    if (now - checkedAt > PILOT_MAX_AGE_MS) {
-      current = await refreshMembership(input.settings, current, input.refresh, input.save, now);
-    }
-    if (!current.pilotMember) throw new HttpError(403, PILOT_REQUIRED, "pilot_required");
-  }
+  const current = await requirePilotMember(input);
   await assertDailyBudget(input.kv, input.settings.dailyBudgetUsd, now);
   await consumeAiBudget(input.kv, {
     userId: current.user.id,

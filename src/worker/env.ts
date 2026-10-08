@@ -16,4 +16,6 @@ export interface Env {
   AI_USER_TOKENS_PER_DAY?: string;
   /** Plain Worker var. Shared estimated Jev spend for a UTC day, in dollars. */
   AI_DAILY_BUDGET_USD?: string;
+  /** Worker secret. Never sent to the browser. */
+  JEV_API_KEY?: string;
 }

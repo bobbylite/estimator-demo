@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { priceEstimate, type Markups } from "../../shared/costing";
 import { UNITS, bidItemSchema, resourceSchema } from "../../shared/schemas";
 import { api } from "../api";
+import { AiPanel, DecisionMarks, useAiDecisions } from "../components/AiPanel";
 import { PilotNotice, useAiResting } from "../components/PilotNotice";
 import { Shell } from "../components/Shell";
 import { Dialog, Mix } from "../components/ui";
@@ -11,7 +12,7 @@ import { formatDate, formatHours, formatMoney, formatQty, STATUS_LABEL } from ".
 import { useSession } from "../session";
 import type { BidItem, Crew, Estimate, Resource } from "../types";
 
-type Tab = "items" | "crews" | "summary";
+type Tab = "items" | "crews" | "summary" | "ai";
 
 export function EstimatePage() {
   const { estimateId } = useParams({ from: "/estimates/$estimateId" });
@@ -25,6 +26,8 @@ export function EstimatePage() {
   });
   const estimate = query.data?.estimate;
   const [tab, setTab] = useState<Tab>("items");
+  const aiAllowed = Boolean(session.data?.pilot && (!session.data.pilot.gateEnabled || session.data.pilot.member));
+  const ai = useAiDecisions(estimateId, aiAllowed);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<BidItem | null>(null);
   const [markups, setMarkups] = useState<Markups | null>(null);
@@ -321,9 +324,9 @@ export function EstimatePage() {
           <span><i className="swatch sub" /> Subs {formatMoney(totals.subcontractor, true)}</span>
         </div>
         <div className="tabs" role="tablist" aria-label="Estimate sections">
-          {(["items", "crews", "summary"] as const).map((value) => (
+          {(["items", "crews", "summary", "ai"] as const).map((value) => (
             <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}>
-              {value === "items" ? "Bid items" : value === "crews" ? "Crews" : "Summary"}
+              {value === "items" ? "Bid items" : value === "crews" ? "Crews" : value === "summary" ? "Summary" : "Jev"}
             </button>
           ))}
         </div>
@@ -369,7 +372,10 @@ export function EstimatePage() {
                         }}
                       >
                         <td className="desc">{item.code}</td>
-                        <td className="desc">{item.description}</td>
+                        <td className="desc">
+                          {item.description}
+                          <DecisionMarks itemId={item.id} decisions={aiAllowed ? (ai.data?.decisions ?? []) : []} />
+                        </td>
                         <td>{formatQty(item.quantity)}</td>
                         <td>{item.unit}</td>
                         <td>{formatHours(item.cost.hours)}</td>
@@ -507,6 +513,14 @@ export function EstimatePage() {
             </div>
             <p className="fine">Rates are the blended cost of the whole crew per hour, not a single person.</p>
           </div>
+        ) : null}
+        {tab === "ai" ? (
+          <AiPanel
+            estimateId={bid.id}
+            allowed={aiAllowed}
+            pilot={session.data?.pilot}
+            resting={Boolean(resting.data?.resting)}
+          />
         ) : null}
         {tab === "summary" ? (
           <div className="summary-layout">
